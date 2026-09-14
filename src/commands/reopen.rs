@@ -6,9 +6,7 @@ use crate::state::{Item, State, Status};
 
 fn reset(item: &mut Item) {
     item.status = Status::Pending;
-    for t in &mut item.ticks {
-        *t = false;
-    }
+    item.ticks.fill(false);
     item.was = None;
     item.changed_after_done = false;
 }

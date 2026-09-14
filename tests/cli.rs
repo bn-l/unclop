@@ -112,7 +112,7 @@ fn full_loop() {
         .arg("init")
         .assert()
         .success()
-        .stdout(predicate::str::contains("scanned 3 files"))
+        .stdout(predicate::str::contains("Scanned 3 files"))
         .stdout(predicate::str::contains("then: unclop next"));
 
     unclop(&p)

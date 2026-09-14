@@ -1,0 +1,30 @@
+---
+source: tests/extract.rs
+expression: "rows(\"go/sample.go\")"
+---
+doc      L1       Package processor seamlessly orchestrates the robust processing of records.
+doc      L9       MaxRetryCount bounds the retries.
+const    L10      MaxRetryCount
+var      L12      globalCounter
+doc      L14      RecordProcessor holds state.
+type     L15      RecordProcessor
+comment  L16      internal cache of things  [in type RecordProcessor]
+field    L17      cachedEntries  [in type RecordProcessor]
+field    L18      Name  [in type RecordProcessor]
+type     L21      Handler
+doc      L23      ProcessRecords utilizes the cache to process the given records efficiently.
+param    L24      rp  [in method ProcessRecords]
+fn       L24      ProcessRecords
+param    L24      recordList  [in method ProcessRecords]
+param    L24      verbose  [in method ProcessRecords]
+param    L24      processedCount  [in method ProcessRecords]
+param    L24      err  [in method ProcessRecords]
+comment  L25      iterate over all of the records in the list  [in method ProcessRecords]
+var      L26      index  [in method ProcessRecords]
+var      L26      currentRecord  [in method ProcessRecords]
+var      L27      trimmedValue  [in method ProcessRecords]
+string   L29      record at index %d was unexpectedly empty  [in method ProcessRecords]
+var      L33      msg  [in method ProcessRecords]
+string   L33      raw string with several words inside  [in method ProcessRecords]
+fn       L38      helperFunction
+param    L38      args  [in func helperFunction]

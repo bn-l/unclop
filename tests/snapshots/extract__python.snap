@@ -1,0 +1,36 @@
+---
+source: tests/extract.rs
+expression: "rows(\"python/sample.py\")"
+---
+doc      L3       Module docstring that seamlessly describes the module.
+var      L8       MAX_RETRIES
+type     L11      DataProcessor
+doc      L12      Utilizes robust processing to handle data.  [in class DataProcessor]
+field    L14      default_timeout  [in class DataProcessor]
+param    L16      validated_input  [in def __init__]
+param    L16      args  [in def __init__]
+param    L16      timeout  [in def __init__]
+param    L16      kwargs  [in def __init__]
+comment  L17      Store the input for later use  [in def __init__]
+field    L18      validated_input  [in def __init__]
+field    L19      _cache  [in def __init__]
+fn       L21      process_data_efficiently  [in class DataProcessor]
+param    L21      item_list  [in def process_data_efficiently]
+param    L21      verbose  [in def process_data_efficiently]
+doc      L22      Processes the data efficiently and returns the result.  [in def process_data_efficiently]
+var      L23      processed_result  [in def process_data_efficiently]
+var      L24      index  [in def process_data_efficiently]
+var      L24      element  [in def process_data_efficiently]
+var      L25      first  [in def process_data_efficiently]
+var      L25      second  [in def process_data_efficiently]
+var      L26      total  [in def process_data_efficiently]
+var      L28      handle  [in def process_data_efficiently]
+var      L32      err  [in def process_data_efficiently]
+string   L33      An unexpected error occurred while processing the data  [in def process_data_efficiently]
+var      L34      handler  [in def process_data_efficiently]
+param    L34      value  [in def process_data_efficiently]
+param    L34      scale  [in def process_data_efficiently]
+string   L35      Processed {len(processed_result)} items successfully  [in def process_data_efficiently]
+fn       L39      helper_function
+param    L39      x  [in def helper_function]
+comment  L40      TODO: clean this up  [in def helper_function]

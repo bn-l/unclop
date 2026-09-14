@@ -1,0 +1,46 @@
+---
+source: tests/extract.rs
+expression: "rows(\"rust/sample.rs\")"
+---
+doc      L4       Crate level doc comment that explains the module.
+doc      L10-11   Utilizes the robust helper to seamlessly parse the input. Second line of the doc.
+fn       L12      process_validated_user_data_result
+param    L12      validated_input  [in fn process_validated_user_data_result]
+param    L12      ctx  [in fn process_validated_user_data_result]
+comment  L13-14   Leverage the helper to compute the final result spread over two lines  [in fn process_validated_user_data_result]
+var      L15      processed_result  [in fn process_validated_user_data_result]
+comment  L15      trailing note  [in fn process_validated_user_data_result]
+var      L16      first  [in fn process_validated_user_data_result]
+var      L16      second  [in fn process_validated_user_data_result]
+var      L17      renamed  [in fn process_validated_user_data_result]
+var      L18      inner  [in fn process_validated_user_data_result]
+var      L19      index  [in fn process_validated_user_data_result]
+var      L19      item  [in fn process_validated_user_data_result]
+comment  L20      block comment inside loop  [in fn process_validated_user_data_result]
+var      L22      closure  [in fn process_validated_user_data_result]
+param    L22      a  [in fn process_validated_user_data_result]
+param    L22      b  [in fn process_validated_user_data_result]
+param    L22      c  [in fn process_validated_user_data_result]
+string   L23      Successfully processed the user data with great care  [in fn process_validated_user_data_result]
+string   L25      Value is {first}  [in fn process_validated_user_data_result]
+type     L28      Point
+field    L29      x  [in struct Point]
+field    L30      y  [in struct Point]
+type     L33      Error
+doc      L34      The value was missing.  [in enum Error]
+variant  L35      Missing  [in enum Error]
+variant  L36      Invalid  [in enum Error]
+field    L36      reason  [in enum Error]
+type     L39      Parser
+fn       L40      parse_thing  [in trait Parser]
+param    L40      input  [in fn parse_thing]
+param    L44      input  [in fn parse_thing]
+fn       L50      new  [in impl Point]
+param    L50      x  [in fn new]
+const    L55      MAX_RETRY_COUNT
+const    L56      GREETING
+string   L56      Hello there, welcome aboard
+mod      L58      inner_module
+fn       L59      hidden  [in mod inner_module]
+macro    L62      make_thing
+fn       L68      attributed

@@ -1,0 +1,32 @@
+---
+source: tests/extract.rs
+expression: "rows(\"ruby/sample.rb\")"
+---
+doc      L5       Seamlessly orchestrates the processing of records.
+mod      L6       ProcessingUtils
+const    L7       MAX_RETRY_COUNT  [in module ProcessingUtils]
+doc      L9       A processor class.  [in module ProcessingUtils]
+type     L10      RecordProcessor  [in module ProcessingUtils]
+param    L13      initial_records  [in def initialize]
+param    L13      verbose  [in def initialize]
+param    L13      extra  [in def initialize]
+param    L13      options  [in def initialize]
+param    L13      block  [in def initialize]
+field    L14      @cached_records  [in def initialize]
+field    L15      @@instance_count  [in def initialize]
+var      L16      $global_flag  [in def initialize]
+doc      L19      Processes every record and returns the count.  [in class RecordProcessor]
+fn       L20      process_all_records  [in class RecordProcessor]
+param    L20      record_list  [in def process_all_records]
+param    L20      limit  [in def process_all_records]
+var      L21      processed_result  [in def process_all_records]
+param    L22      current_record  [in def process_all_records]
+param    L22      index  [in def process_all_records]
+var      L23      first  [in def process_all_records]
+var      L23      second  [in def process_all_records]
+string   L24      Processed record number #{index} successfully  [in def process_all_records]
+string   L26      The record list was unexpectedly empty  [in def process_all_records]
+var      L27      message  [in def process_all_records]
+string   L27-29   Heredoc with several words of explanation  [in def process_all_records]
+fn       L33      build_default  [in class RecordProcessor]
+comment  L43-46   Block comment spanning multiple lines

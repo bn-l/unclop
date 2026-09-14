@@ -1,0 +1,43 @@
+---
+source: tests/extract.rs
+expression: "rows(\"typescript/sample.ts\")"
+---
+doc      L1-3     Utilizes the robust service layer to seamlessly orchestrate requests.
+const    L8       DEFAULT_TIMEOUT_MS
+type     L10      UserRecord
+doc      L11      The unique identifier.  [in interface UserRecord]
+field    L12      id  [in interface UserRecord]
+field    L13      displayName  [in interface UserRecord]
+type     L17      Handler
+param    L17      input  [in type Handler]
+type     L19      Status
+variant  L20      Active  [in enum Status]
+variant  L21      Inactive  [in enum Status]
+type     L24      RequestOrchestrator
+field    L25      cache  [in class RequestOrchestrator]
+field    L26      retryCount  [in class RequestOrchestrator]
+field    L27      #secret  [in class RequestOrchestrator]
+string   L27      hidden value here  [in class RequestOrchestrator]
+param    L29      baseUrl  [in method constructor]
+fn       L31      fetchUserRecord  [in class RequestOrchestrator]
+param    L31      userId  [in method fetchUserRecord]
+param    L31      retries  [in method fetchUserRecord]
+param    L31      verbose  [in method fetchUserRecord]
+comment  L32-33   Leverage the cache to avoid redundant calls across multiple lines of explanation  [in method fetchUserRecord]
+const    L34      cachedResult  [in method fetchUserRecord]
+var      L35      first  [in method fetchUserRecord]
+var      L35      rest  [in method fetchUserRecord]
+var      L36      entry  [in method fetchUserRecord]
+string   L38      Failed to fetch the user record from the server  [in method fetchUserRecord]
+var      L39      error  [in method fetchUserRecord]
+fn       L43      handleClick  [in method fetchUserRecord]
+param    L43      event  [in function handleClick]
+string   L44      Anonymous User  [in method fetchUserRecord]
+fn       L47      processRequest  [in class RequestOrchestrator]
+param    L47      request  [in method processRequest]
+mod      L50      Utilities
+fn       L51      computeHash  [in namespace Utilities]
+param    L51      value  [in function computeHash]
+const    L56      config
+string   L56      a b
+type     L57      Literal

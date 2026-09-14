@@ -1,0 +1,33 @@
+---
+source: tests/extract.rs
+expression: "rows(\"c/sample.c\")"
+---
+comment  L5       Maximum number of retries before giving up.
+macro    L6       MAX_RETRY_COUNT
+macro    L7       GREETING_MESSAGE
+macro    L8       SQUARE
+comment  L10      A record that seamlessly holds the processed data.
+type     L11      processed_record
+field    L12      record_id  [in struct processed_record]
+comment  L12      trailing comment on the field  [in struct processed_record]
+field    L13      record_name  [in struct processed_record]
+field    L14      flags  [in struct processed_record]
+type     L17      processed_record_t
+type     L18      callback_fn
+type     L20      record_status
+variant  L20      STATUS_ACTIVE  [in enum record_status]
+variant  L20      STATUS_INACTIVE  [in enum record_status]
+var      L22      global_counter
+var      L23      external_declared
+doc      L25-27   Processes the record utilizing the robust helper.
+fn       L28      process_record_efficiently
+param    L28      input_record  [in fn process_record_efficiently]
+param    L28      compare  [in fn process_record_efficiently]
+param    L28      buffer  [in fn process_record_efficiently]
+var      L29      local_result  [in fn process_record_efficiently]
+var      L30      message  [in fn process_record_efficiently]
+string   L30      Processing completed successfully with no issues  [in fn process_record_efficiently]
+string   L32      Total records processed: %d\nand this continues  [in fn process_record_efficiently]
+fn       L36      forward_declared
+param    L36      first_arg
+param    L36      second_arg

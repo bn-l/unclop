@@ -1,0 +1,32 @@
+---
+source: tests/extract.rs
+expression: "rows(\"javascript/sample.js\")"
+---
+comment  L2       Helper
+const    L3       path
+doc      L6-8     Leverages the utility to seamlessly compute values.
+fn       L9       computeTotalValue
+param    L9       itemArray  [in function computeTotalValue]
+param    L9       multiplier  [in function computeTotalValue]
+param    L9       options  [in function computeTotalValue]
+var      L10      runningTotal  [in function computeTotalValue]
+var      L11      currentItem  [in function computeTotalValue]
+comment  L12      accumulate  [in function computeTotalValue]
+fn       L14      finalize  [in function computeTotalValue]
+fn       L14      namedInner  [in function finalize]
+param    L14      value  [in function finalize]
+type     L18      ShoppingCart
+field    L19      items  [in class ShoppingCart]
+field    L20      #hiddenTotal  [in class ShoppingCart]
+field    L21      VERSION  [in class ShoppingCart]
+param    L23      ownerName  [in method constructor]
+fn       L24      addItem  [in class ShoppingCart]
+param    L24      newItem  [in method addItem]
+fn       L25      total  [in class ShoppingCart]
+const    L28      messages
+string   L28      Welcome back to the shop
+fn       L29      arrow
+param    L29      a  [in function arrow]
+param    L29      b  [in function arrow]
+var      L30      message
+string   L30      Something went wrong: ${message}

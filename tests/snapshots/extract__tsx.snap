@@ -1,0 +1,14 @@
+---
+source: tests/extract.rs
+expression: "rows(\"tsx/sample.tsx\")"
+---
+doc      L3       Renders the user card with a seamless experience.
+fn       L4       UserCard
+param    L4       userName  [in function UserCard]
+param    L4       onSelect  [in function UserCard]
+const    L5       isOpen  [in function UserCard]
+const    L5       setIsOpen  [in function UserCard]
+string   L7       Open the user card  [in function UserCard]
+comment  L8       JSX comment about the header  [in function UserCard]
+string   L9       Avatar of the user  [in function UserCard]
+string   L10      Currently open  [in function UserCard]

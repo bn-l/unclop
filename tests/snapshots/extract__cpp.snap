@@ -1,0 +1,34 @@
+---
+source: tests/extract.rs
+expression: "rows(\"cpp/sample.cpp\")"
+---
+mod      L4       processing_utils
+doc      L6       A processor that seamlessly leverages the strategy pattern.  [in namespace processing_utils]
+type     L7       RecordProcessor  [in namespace processing_utils]
+param    L9       initial_capacity  [in class RecordProcessor]
+param    L11      input_records  [in class RecordProcessor]
+param    L11      verbose  [in class RecordProcessor]
+fn       L12      computeChecksum  [in class RecordProcessor]
+param    L12      seed  [in class RecordProcessor]
+param    L13      other  [in class RecordProcessor]
+field    L14      kMaxRetries  [in class RecordProcessor]
+field    L17      cached_records_  [in class RecordProcessor]
+field    L18      retry_count_  [in class RecordProcessor]
+type     L21      RecordList  [in namespace processing_utils]
+fn       L24      identity_helper  [in namespace processing_utils]
+param    L24      value  [in fn identity_helper]
+param    L26      input_records  [in fn processAllRecords]
+param    L26      verbose  [in fn processAllRecords]
+comment  L27      iterate the records carefully  [in fn processAllRecords]
+var      L28      current_record  [in fn processAllRecords]
+var      L29      first_part  [in fn processAllRecords]
+var      L29      second_part  [in fn processAllRecords]
+var      L31      message  [in fn processAllRecords]
+string   L31      Processing finished without any errors  [in fn processAllRecords]
+var      L32      raw  [in fn processAllRecords]
+string   L32      raw string with words  [in fn processAllRecords]
+var      L33      lambda  [in fn processAllRecords]
+param    L33      captured_value  [in fn processAllRecords]
+fn       L36      c_api_entry  [in namespace processing_utils]
+param    L36      handle  [in namespace processing_utils]
+comment  L38      namespace processing_utils

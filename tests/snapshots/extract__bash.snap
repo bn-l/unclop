@@ -1,0 +1,18 @@
+---
+source: tests/extract.rs
+expression: "rows(\"bash/sample.sh\")"
+---
+comment  L5       Seamlessly orchestrates the deployment process.
+var      L6       MAX_RETRY_COUNT
+var      L7       GLOBAL_FLAG
+doc      L9       Processes every record in the list
+fn       L10      process_all_records
+var      L11      record_list  [in function process_all_records]
+var      L12      processed_count  [in function process_all_records]
+var      L13      collected_items  [in function process_all_records]
+var      L14      current_record  [in function process_all_records]
+comment  L15      skip empty  [in function process_all_records]
+string   L18      Processing record ${current_record} with great care  [in function process_all_records]
+string   L19      single quoted words here  [in function process_all_records]
+string   L22      Heredoc body with multiple words  [in function process_all_records]
+fn       L27      helper_function

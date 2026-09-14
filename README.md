@@ -1,10 +1,21 @@
+<p align="center">
+  <img src="splat.svg" alt="unclop logo" width="160">
+</p>
+
+`------------------ Human written ----------------- `
+
 # unclop
 
 This tool is designed to unslop your codebase to remove unintelligible slop that claude especially likes to push out.
 
-It inventories all comments, declaration-site identifiers and string literals in a repository using tree-sitter. It then stores the review status of each item in a state file and gives a coding agent a chunk of items at a time with a specific prompt on how to unslop them. Each chunk contains the prompt, the rules and the items. The agent edits the source, and then, via the CLI marks off what is done and requests the next chunk.
+Each `uslop next` call gives a coding agent a chunk of items (identifiers, comments, strings) at a time with a specific prompt on how to unslop them. The agent edits the source and then calls the CLI with the identifiers to markoff that they're done. `uslop next` gives the next chunk when all is done.
 
 The prompt for unslopping is in the config file at `~/.config/unclop/config.yaml`.
+
+<br>
+<br>
+
+`------------------- AI written ----------------- `
 
 ## Features
 

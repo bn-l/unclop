@@ -187,3 +187,7 @@ cargo test
 ```
 
 The test suite covers state round-trips and recovery, reconcile scenarios such as renames and moves, extraction snapshots for each language and an end-to-end CLI walkthrough. The hidden command `unclop debug-tree <file>` prints the tree-sitter parse of a file. The command is useful when a query under `queries/` is added or fixed.
+
+<p align="center">
+  <img src="shred.svg" alt="The unclop splat feeding into a paper shredder and coming out as clean strips" width="420">
+</p>

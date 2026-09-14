@@ -1,0 +1,20 @@
+(function_definition declarator: (_) @fn.declarator)
+(declaration declarator: (_) @var.declarator)
+(parameter_declaration declarator: (_) @param.declarator)
+(optional_parameter_declaration declarator: (_) @param.declarator)
+(variadic_parameter_declaration declarator: (_) @param.declarator)
+(field_declaration declarator: (_) @field.declarator)
+(type_definition declarator: (_) @type.declarator)
+(for_range_loop declarator: (_) @var.declarator)
+(alias_declaration name: (type_identifier) @type)
+
+(struct_specifier name: (_) @type body: (_))
+(union_specifier name: (_) @type body: (_))
+(enum_specifier name: (_) @type body: (_))
+(class_specifier name: (_) @type body: (_))
+(enumerator name: (identifier) @variant)
+
+(namespace_definition name: (_) @mod)
+
+(preproc_def name: (identifier) @macro)
+(preproc_function_def name: (identifier) @macro)

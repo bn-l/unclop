@@ -1,0 +1,25 @@
+(method name: (_) @fn)
+(singleton_method name: (_) @fn)
+
+(class name: (_) @type)
+(module name: (_) @mod)
+
+(assignment left: (identifier) @var)
+(assignment left: (global_variable) @var)
+(assignment left: (instance_variable) @field)
+(assignment left: (class_variable) @field)
+(assignment left: (constant) @const)
+(assignment left: (left_assignment_list) @var.pattern)
+
+(method_parameters (identifier) @param)
+(method_parameters (optional_parameter name: (identifier) @param))
+(method_parameters (keyword_parameter name: (identifier) @param))
+(method_parameters (splat_parameter name: (identifier) @param))
+(method_parameters (hash_splat_parameter name: (identifier) @param))
+(method_parameters (block_parameter name: (identifier) @param))
+
+(block_parameters (identifier) @param)
+(block_parameters (optional_parameter name: (identifier) @param))
+(block_parameters (keyword_parameter name: (identifier) @param))
+(block_parameters (splat_parameter name: (identifier) @param))
+(block_parameters (block_parameter name: (identifier) @param))

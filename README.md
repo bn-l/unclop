@@ -2,7 +2,7 @@
   <img src="splat.svg" alt="unclop logo" width="160">
 </p>
 
-`------------------ Human written ----------------- `
+`Human written:`
 
 # unclop
 
@@ -12,10 +12,16 @@ Each `uslop next` call gives a coding agent a chunk of items (identifiers, comme
 
 The prompt for unslopping is in the config file at `~/.config/unclop/config.yaml`.
 
+## Install:
+
+`brew install bn-l/tap/unclop`
+
 <br>
 <br>
 
-`------------------- AI written ----------------- `
+----
+
+`AI written:`
 
 ## Features
 

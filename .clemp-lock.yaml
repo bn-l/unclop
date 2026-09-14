@@ -1,0 +1,39 @@
+template-repo: https://github.com/bn-l/claude-template
+template-sha: d3e40560052991c54eb280bf8a40fe680b4e9d97
+original-command:
+  languages: []
+  hooks: []
+  mcp: []
+  commands: []
+  githooks: []
+  drop-mcp: []
+  drop-hooks: []
+  clarg: null
+resolved:
+  mcp:
+  - context7
+  - devlogger
+  - textbelt
+  hooks:
+  - session-cleanup
+  - sound
+files:
+  .claude/clarg-default.yaml: d3f1553d6103905d5e94986f70d2c26cf27478a70c6ea3e2cb307f3edc2ae886
+  .claude/commands/commit.md: 3f40978252881e912e99ded0a1f86e4a49044dc29a73350099418d1556e1e930
+  .claude/commands/grain-of-salt.md: 711eb13468b79493de0b97bb2cccda6e00f87a03f1bd5d9a0148ecfc0940e06c
+  .claude/commands/hb-release.md: 7957408d5547a751fa1b2c8a05927aa607d682cd87abc7466f4417496c9087d2
+  .claude/commands/isolated.md: 6be3e6eebf6e0ad0b038e51fe7d8307b78ff24c9c4e5c7662367956a2b4301bc
+  .claude/commands/leads-based-research.md: a7cbdca1bb7903367b94030065465f2d73cc5213fde20d3e613847e9cabf47c1
+  .claude/commands/maintain-repomap.md: 6f64a744ef193e6a4f728152c853ad0a35bf7b956b7cba4d253121e3d740f4d9
+  .claude/settings.local.json: b47385082de27922152db2d4f341aafc9bca0c72192a6901570ed883aa976f8f
+  .claude/skills/.DS_Store: ce6ff70ffcaa85aac09f42260ea610824b429ec68a0f660a4651c2c3ee17ef7c
+  .claude/skills/anti-slop/SKILL.md: f995fd6355ae35146100978d0c5e3eae5db2c8374182e8734fafce6565d1977d
+  .claude/skills/devlogger/SKILL.md: 2a0a937398e8ec7de9486472da7c9ce5b1c77afce09ee73c0acaeb8b5a144fbe
+  .claude/skills/red-green-fix/SKILL.md: 4ade233d47b8f7c1cc379d52dea8a62cce6415ee0b031a1fe5e009ea0b776a3e
+  .claude/skills/search-history-combined/SKILL.md: 9980ab9e742127d9ccd8873ff5108ca3c6e40e57eb61727c7f1549bb3fcf6443
+  .claude/skills/skill-skill/SKILL.md: 84e133ef606aa47feba31a1d2356fbe821fb67e4bcfadc000f5a9a1ed899b06a
+  .claude/skills/web-search/SKILL.md: 893cfb9ea1d8b5a4eb1f8577319e743ed7aa5b2ae49270a70616e18fd1aebe82
+  .editorconfig: 920095057fbf951368af22f3948f51d4138ed73e777b2f2896d424f7946840f8
+  .mcp.json: cea84eaf7e0103f7281f3d2bb9d30301ffb53787d6dd07ea5a9439c052f866fd
+  AGENTS.md: b603b645b4bb152fdf11c6c86b0258bc8e44e5dddf7cd4e21bbfc39e54eb4d51
+  CLAUDE.md: 62391c6810cb5302efa79f377bbfa438c5885cc28f8bf0c3e79172934a84ef90

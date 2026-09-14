@@ -19,7 +19,7 @@ The prompt for unslopping is in the config file at `~/.config/unclop/config.yaml
 <br>
 <br>
 
-----
+
 
 `AI written:`
 

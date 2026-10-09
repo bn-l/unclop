@@ -392,6 +392,84 @@ fn then_line_keeps_the_flags() {
         .stdout(predicate::str::ends_with("then: unclop next\n"));
 }
 
+const CONFIG_MD: &str = r#"---
+chunk_size: 50
+---
+
+PROMPT PLACEHOLDER
+
+## Identifiers
+
+1. Plain english: no filler, no "slop".
+2. no filler
+3. fits convention
+
+## Comments
+
+Comments only: say why, not what.
+
+1. plain english
+2. says why
+
+## Strings
+
+1. plain english
+"#;
+
+#[test]
+fn markdown_config() {
+    let p = setup();
+    let md = p.dir.path().join("config.md");
+    fs::write(&md, CONFIG_MD).unwrap();
+    let with_md = |args: &[&str]| {
+        let mut c = unclop(&p);
+        c.env("UNCLOP_CONFIG", &md).args(args);
+        c
+    };
+    with_md(&["init"]).assert().success();
+
+    with_md(&["next", "--only", "identifier"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "  1. Plain english: no filler, no \"slop\".\n",
+        ))
+        .stdout(predicate::str::contains("Comments only").not());
+    with_md(&["next", "--only", "comment", "--force"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Comments only: say why, not what.\n\nRules for comments:\n  1. plain english\n",
+        ));
+
+    fs::write(&md, CONFIG_MD.replace("## Strings", "## Prose")).unwrap();
+    with_md(&["next", "--force"])
+        .assert()
+        .code(70)
+        .stderr(predicate::str::contains(
+            "config.md: line 20: unknown section \"## Prose\"",
+        ));
+}
+
+#[test]
+fn init_writes_a_markdown_config() {
+    let p = setup();
+    let md = p.dir.path().join("fresh/config.md");
+    unclop(&p)
+        .env("UNCLOP_CONFIG", &md)
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Wrote config"));
+    assert!(fs::read_to_string(&md).unwrap().contains("## Identifiers"));
+    unclop(&p)
+        .env("UNCLOP_CONFIG", &md)
+        .arg("next")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1. IDENTIFIER RULE PLACEHOLDER 1"));
+}
+
 #[test]
 fn missing_config_points_at_init() {
     let p = setup();

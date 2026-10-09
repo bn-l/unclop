@@ -58,7 +58,20 @@ const FILES: &str =
   .unclop.yaml                         optional project notes appended to the prompt
                                        and an optional chunk_size override
   .unclopignore                        extra ignore rules in gitignore syntax
-  $XDG_CONFIG_HOME/unclop/config.yaml  prompt, rules, chunk_size and strings.min_words";
+  $XDG_CONFIG_HOME/unclop/config.md    prompt, rules, chunk_size and strings.min_words.
+                                       An older config.yaml in the same directory is
+                                       read when config.md does not exist.";
+
+const CONFIG_FORMAT: &str =
+    "  Text before the first \"## \" heading is the prompt printed at the top of every
+  chunk. The sections \"## Identifiers\", \"## Comments\" and \"## Strings\" each hold
+  the rules for their category as a list, numbered by position. A rule starts with
+  \"- \" or \"1. \" at the start of a line and continues on the lines below it. After
+  a blank line only an indented line continues it. Text between a heading and its
+  list is printed above that category's rules, only in chunks that contain the
+  category. Optional front matter between two \"---\" lines sets chunk_size and
+  strings.min_words. A config path that does not end in .md is read as YAML, the
+  older format.";
 
 const EXIT_CODES: &str = "  0   the command completed
   1   `done` or `skip` rejected an argument, or `status` found pending items
@@ -140,8 +153,8 @@ shown.";
 
 const DIR_HELP: &str = "Run in this directory instead of the current one. The state file and the \
 project notes file are read from and written to it.";
-const CONFIG_HELP: &str = "Read this config file instead of $XDG_CONFIG_HOME/unclop/config.yaml. The \
-UNCLOP_CONFIG environment variable does the same.";
+const CONFIG_HELP: &str = "Read this config file instead of $XDG_CONFIG_HOME/unclop/config.md. A path \
+that does not end in .md is read as YAML. The UNCLOP_CONFIG environment variable does the same.";
 const WORKER_HELP: &str = "Take only the files assigned to worker I of N, for example 2/4. Files are \
 assigned by a hash of their path so N agents running 1/N through N/N cover every file once.";
 const ONLY_HELP: &str = "Take only items of this category: identifier, comment or string.";
@@ -306,6 +319,9 @@ pub fn main_help() -> String {
     s.push_str("Files:\n");
     s.push_str(FILES);
     s.push_str("\n\n");
+    s.push_str("Config file:\n");
+    s.push_str(CONFIG_FORMAT);
+    s.push_str("\n\n");
     s.push_str("Exit codes:\n");
     s.push_str(EXIT_CODES);
     s
@@ -426,5 +442,6 @@ mod tests {
             assert!(help.contains(flag), "missing {flag}");
         }
         assert!(help.contains("Exit codes:"));
+        assert!(help.contains("Config file:"));
     }
 }

@@ -85,12 +85,16 @@ pub fn render_text(
         if rules.is_empty() {
             continue;
         }
+        if let Some(prompt) = config.prompts.get(cat) {
+            out.push_str(prompt);
+            out.push_str("\n\n");
+        }
         out.push_str(&format!("Rules for {}:\n", cat.label()));
         for (i, rule) in rules.iter().enumerate() {
             out.push_str(&format!("  {}. {}\n", i + 1, rule));
         }
+        out.push('\n');
     }
-    out.push('\n');
 
     let pending = match only {
         Some(c) => format!("pending {}", c.label()),
@@ -161,6 +165,7 @@ pub fn render_json(
         .collect();
     json!({
         "prompt": config.prompt,
+        "prompts": config.prompts,
         "notes": config.notes,
         "rules": {
             "identifier": config.rules.identifier,

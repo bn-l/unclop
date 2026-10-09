@@ -10,7 +10,7 @@ This tool is designed to unslop your codebase to remove unintelligible slop that
 
 Each `uslop next` call gives a coding agent a chunk of items (identifiers, comments, strings) at a time with a specific prompt on how to unslop them. The agent edits the source and then calls the CLI with the identifiers to markoff that they're done. `uslop next` gives the next chunk when all is done.
 
-The prompt for unslopping is in the config file at `~/.config/unclop/config.yaml`.
+The prompt for unslopping is in the config file at `~/.config/unclop/config.md`.
 
 ## Install:
 
@@ -97,8 +97,10 @@ Write comments, identifiers and strings in plain, direct English. ...
 Rules for identifiers:
   1. no filler prefixes or suffixes (validated_, processed_, _result)
   2. ...
+
 Rules for comments:
   1. ...
+
 Rules for strings:
   1. ...
 
@@ -153,30 +155,46 @@ Item ids are ten hexadecimal characters. Any unique prefix of six or more charac
 
 5. **Store.** The state file is `.unclop.jsonl` in the project root. Commit it with the code. A command holds an exclusive lock on the state file for its entire run. A save writes the new content to the journal file `.unclop.jsonl.tmp` and then rewrites the state file in place. A load that finds an empty or damaged state file next to a journal recovers from the journal. A file with unchanged mtime and size is not parsed again.
 
-6. **Build a chunk.** `next` adds whole files to a chunk until the chunk size is reached. The default chunk size is 25 items. Within a file the order is identifiers then comments then strings. `next --only <category>` restricts the chunk to one category. A run that repeats `next --only identifier` until no identifier is pending and then switches to `--only comment` reviews every identifier in the codebase before the first comment. The chunk record stores the normalized text of each item at issue time, the worker and the `--only` category. `done` uses the snapshot for the unchanged check. The `then:` line at the end of `next`, `done` and `skip` repeats `--worker` and repeats `--only` while that category has pending items for the worker.
+6. **Build a chunk.** `next` adds whole files to a chunk until the chunk size is reached. The default chunk size is 100 items. Within a file the order is identifiers then comments then strings. `next --only <category>` restricts the chunk to one category. A run that repeats `next --only identifier` until no identifier is pending and then switches to `--only comment` reviews every identifier in the codebase before the first comment. The chunk record stores the normalized text of each item at issue time, the worker and the `--only` category. `done` uses the snapshot for the unchanged check. The `then:` line at the end of `next`, `done` and `skip` repeats `--worker` and repeats `--only` while that category has pending items for the worker.
 
 The design decisions and the rationale are recorded in `PLAN.md`.
 
 ## Configuration
 
-`unclop init` writes the configuration to `$XDG_CONFIG_HOME/unclop/config.yaml` or to `~/.config/unclop/config.yaml` when the variable is unset. `--config <path>` and `UNCLOP_CONFIG` select another location.
+`unclop init` writes the configuration to `$XDG_CONFIG_HOME/unclop/config.md` or to `~/.config/unclop/config.md` when the variable is unset. `--config <path>` and `UNCLOP_CONFIG` select another location. The configuration is Markdown:
 
-```yaml
-prompt: |
-  Write comments, identifiers and strings in plain, direct English. ...
-rules:
-  comment:
-    - ...
-  identifier:
-    - ...
-  string:
-    - ...
-chunk_size: 25
+```markdown
+---
+chunk_size: 100
 strings:
   min_words: 2
+---
+
+Write comments, identifiers and strings in plain, direct English. ...
+
+## Identifiers
+
+1. No filler prefixes or suffixes such as validated_, processed_ or _result.
+2. ...
+
+## Comments
+
+This text is printed above the comment rules, only in chunks that contain comments.
+
+1. ...
+
+## Strings
+
+1. ...
 ```
 
-The position of a rule in its list is the rule number that `done` records. A `.unclop.yaml` file in the project root can append `notes` to the prompt and override `chunk_size`.
+Text before the first `## ` heading is the prompt at the top of every chunk. Each of the three sections holds the rules for its category. A rule starts with `- `, `* `, `+ `, `1. ` or `1) ` at the start of a line and continues on the lines below it. After a blank line only an indented line continues the rule. The position of a rule in its list is the rule number that `done` records, whatever number the file shows. Text between a heading and its list is printed above that category's rules. Only `## ` headings start sections, so a prompt can contain `#` and `###` headings. The front matter is optional.
+
+unclop refuses to load a configuration with an unknown, repeated or missing section, a section without rules, or unindented text below a section's rules. The error names the line.
+
+Configurations written by earlier versions are YAML. unclop reads `config.yaml` when `config.md` does not exist and reads a `--config` path that does not end in `.md` as YAML. The YAML format has no per-category prompts.
+
+A `.unclop.yaml` file in the project root can append `notes` to the prompt and override `chunk_size`.
 
 The default configuration contains placeholders. Replace the prompt and the rules before the first run.
 

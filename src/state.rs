@@ -63,6 +63,10 @@ pub struct Item {
     pub changed_after_done: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// Hash of the source line the item ends on and the next non-blank line. It
+    /// tells identical items in one file apart when one of them is deleted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctx: Option<u64>,
 }
 
 impl Item {
@@ -85,6 +89,35 @@ pub fn key_of(path: &str, id: &str) -> String {
     format!("{path}#{id}")
 }
 
+/// A query of six to nine characters without an ordinal abbreviates an id's hash.
+/// A full ten-character id is never a prefix of `id~2`: it names a different item.
+fn is_prefix_query(q: &str) -> bool {
+    (6..10).contains(&q.len()) && !q.contains('~')
+}
+
+/// Splits `path#id` at the last `#`: ids never contain one, paths can.
+pub fn split_key(key: &str) -> Option<(&str, &str)> {
+    key.rsplit_once('#')
+}
+
+/// Why `State::resolve` found no single item.
+#[derive(Debug)]
+pub enum ResolveError {
+    NotFound(String),
+    /// Several items match. Never a sign that an item was deleted.
+    Ambiguous(String),
+}
+
+impl std::fmt::Display for ResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResolveError::NotFound(m) | ResolveError::Ambiguous(m) => f.write_str(m),
+        }
+    }
+}
+
+impl std::error::Error for ResolveError {}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Chunk {
     pub worker: String,
@@ -100,7 +133,16 @@ pub struct Chunk {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
 enum Record {
-    Meta { v: u32 },
+    /// Opens the file with the scan key and closes it with `end`, so a file cut short
+    /// at a line boundary is told apart from a complete one. Older versions read
+    /// both as plain meta records.
+    Meta {
+        v: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scan: Option<String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        end: bool,
+    },
     File(FileRecord),
     Item(Item),
     Chunk(Chunk),
@@ -116,6 +158,9 @@ pub struct FileEntry {
 pub struct State {
     pub files: BTreeMap<String, FileEntry>,
     pub chunks: BTreeMap<String, Chunk>,
+    /// The scan settings the stored items were extracted with. A file is parsed
+    /// again when they differ, even if its size and modification time did not change.
+    pub scan_key: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -138,19 +183,29 @@ impl Counts {
 impl State {
     /// Parses the JSONL text of a state file. `origin` is only used in error messages.
     pub fn parse(text: &str, origin: &Path) -> Result<State> {
+        Ok(Self::parse_checked(text, origin)?.0)
+    }
+
+    /// Parses like `parse` and also reports whether the text ends with the end record.
+    fn parse_checked(text: &str, origin: &Path) -> Result<(State, bool)> {
         let mut state = State::default();
+        let mut complete = false;
         for (n, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
             let rec: Record = serde_json::from_str(line)
                 .with_context(|| format!("{}:{}: bad state record", origin.display(), n + 1))?;
+            complete = matches!(rec, Record::Meta { end: true, .. });
             match rec {
-                Record::Meta { v } => {
+                Record::Meta { v, scan, .. } => {
                     if v > VERSION {
                         bail!(
                             "state file version {v} is newer than this binary supports ({VERSION})"
                         );
+                    }
+                    if let Some(scan) = scan {
+                        state.scan_key = scan;
                     }
                 }
                 Record::File(rec) => {
@@ -165,13 +220,18 @@ impl State {
                 }
             }
         }
-        Ok(state)
+        Ok((state, complete))
     }
 
-    /// JSONL: meta, then per file its record followed by its items, then chunks.
+    /// JSONL: meta, then per file its record followed by its items, then chunks,
+    /// then the end record.
     pub fn serialize(&self) -> Result<String> {
         let mut buf = String::new();
-        buf.push_str(&serde_json::to_string(&Record::Meta { v: VERSION })?);
+        buf.push_str(&serde_json::to_string(&Record::Meta {
+            v: VERSION,
+            scan: Some(self.scan_key.clone()).filter(|s| !s.is_empty()),
+            end: false,
+        })?);
         buf.push('\n');
         for entry in self.files.values() {
             buf.push_str(&serde_json::to_string(&Record::File(entry.record.clone()))?);
@@ -185,6 +245,12 @@ impl State {
             buf.push_str(&serde_json::to_string(&Record::Chunk(chunk.clone()))?);
             buf.push('\n');
         }
+        buf.push_str(&serde_json::to_string(&Record::Meta {
+            v: VERSION,
+            scan: None,
+            end: true,
+        })?);
+        buf.push('\n');
         Ok(buf)
     }
 
@@ -209,7 +275,7 @@ impl State {
     }
 
     pub fn item_by_key(&self, key: &str) -> Option<&Item> {
-        let (path, id) = key.split_once('#')?;
+        let (path, id) = split_key(key)?;
         self.files.get(path)?.items.iter().find(|i| i.id == id)
     }
 
@@ -223,35 +289,40 @@ impl State {
 
     /// Resolves an id the way the agent typed it: `path#id`, a full id, an alias
     /// (the id an item had when it was issued), or a unique prefix of six or more chars.
-    pub fn resolve(&self, query: &str) -> Result<(String, String)> {
+    pub fn resolve(&self, query: &str) -> Result<(String, String), ResolveError> {
         let q = query.trim();
         if q.is_empty() {
-            bail!("empty id");
+            return Err(ResolveError::NotFound("empty id".to_string()));
         }
-        if let Some((path, id)) = q.split_once('#') {
-            return match self.item_by_key(q) {
-                Some(_) => Ok((path.to_string(), id.to_string())),
-                None => bail!("no item {q}"),
-            };
-        }
-        // Renaming one of two identical items gives the other the renamed one's old
-        // id, so the id each item was last shown under is tried first.
-        let shown: Vec<&Item> = self.all_items().filter(|i| i.shown_id() == q).collect();
-        match shown.len() {
-            1 => return Ok((shown[0].path.clone(), shown[0].id.clone())),
-            n if n > 1 => bail!("{q} matches {n} items; use path#id: {}", list_keys(&shown)),
-            _ => {}
+        let found = |i: &Item| Ok((i.path.clone(), i.id.clone()));
+        let ambiguous = |items: &[&Item]| {
+            Err(ResolveError::Ambiguous(format!(
+                "{q} matches {} items; use path#id: {}",
+                items.len(),
+                list_keys(items)
+            )))
+        };
+        if let Some((path, id)) = split_key(q) {
+            let item = self.files.get(path).and_then(|e| {
+                e.items
+                    .iter()
+                    .find(|i| i.id == id || i.alias.as_deref() == Some(id))
+            });
+            return item.map_or_else(
+                || Err(ResolveError::NotFound(format!("no item {q}"))),
+                found,
+            );
         }
         let exact: Vec<&Item> = self
             .all_items()
             .filter(|i| i.id == q || i.alias.as_deref() == Some(q))
             .collect();
         match exact.len() {
-            1 => return Ok((exact[0].path.clone(), exact[0].id.clone())),
-            n if n > 1 => bail!("{q} matches {n} items; use path#id: {}", list_keys(&exact)),
+            1 => return found(exact[0]),
+            n if n > 1 => return ambiguous(&exact),
             _ => {}
         }
-        if q.len() >= 6 {
+        if is_prefix_query(q) {
             let prefix: Vec<&Item> = self
                 .all_items()
                 .filter(|i| {
@@ -259,12 +330,36 @@ impl State {
                 })
                 .collect();
             match prefix.len() {
-                1 => return Ok((prefix[0].path.clone(), prefix[0].id.clone())),
-                n if n > 1 => bail!("{q} matches {n} items; use path#id: {}", list_keys(&prefix)),
+                1 => return found(prefix[0]),
+                n if n > 1 => return ambiguous(&prefix),
                 _ => {}
             }
         }
-        bail!("no item matches {q}")
+        Err(ResolveError::NotFound(format!("no item matches {q}")))
+    }
+
+    /// The chunk key an id was printed under, for an id that matches no item:
+    /// the item was deleted from the source after the chunk was issued.
+    pub fn issued_key(&self, query: &str) -> Option<String> {
+        let q = query.trim();
+        self.chunks.values().find_map(|c| {
+            c.keys
+                .iter()
+                .find(|k| {
+                    split_key(k)
+                        .is_some_and(|(_, id)| id == q || (is_prefix_query(q) && id.starts_with(q)))
+                })
+                .cloned()
+        })
+    }
+
+    /// The most recently issued chunk that holds `key`. Chunks from an earlier run
+    /// with a different worker count can hold it too, with older text.
+    pub fn chunk_holding(&self, key: &str) -> Option<&Chunk> {
+        self.chunks
+            .values()
+            .filter(|c| c.keys.iter().any(|k| k == key))
+            .max_by_key(|c| c.issued)
     }
 
     pub fn counts(&self) -> Counts {
@@ -324,21 +419,33 @@ impl StateFile<'_> {
         self.file
             .read_to_string(&mut text)
             .with_context(|| format!("reading {}", path.display()))?;
-        let parsed = State::parse(&text, &path);
+        let parsed = State::parse_checked(&text, &path);
 
-        // An empty or unparseable file next to a journal means a save was cut
-        // short between truncating and writing. The journal holds the full content.
+        // A save writes the journal first, then truncates and rewrites the state
+        // file, then deletes the journal. A state file that is empty, unparseable or
+        // missing its end record next to a journal means that save was cut short.
         let journal = self.root.join(JOURNAL_FILE);
-        if (text.trim().is_empty() || parsed.is_err())
-            && journal.is_file()
-            && let Ok(journal_text) = fs::read_to_string(&journal)
-            && !journal_text.trim().is_empty()
-            && let Ok(state) = State::parse(&journal_text, &journal)
-        {
+        let recovered = journal
+            .is_file()
+            .then(|| fs::read_to_string(&journal).ok())
+            .flatten()
+            .filter(|t| !t.trim().is_empty())
+            .and_then(|t| State::parse_checked(&t, &journal).ok());
+        let use_journal = match (&parsed, &recovered) {
+            (_, None) => false,
+            // A state file from an older version has no end record; only a journal
+            // that has one is known to be more complete.
+            (Ok((_, false)), Some((_, journal_complete))) if !text.trim().is_empty() => {
+                *journal_complete
+            }
+            (Ok((_, complete)), Some(_)) => !complete,
+            (Err(_), Some(_)) => true,
+        };
+        if use_journal && let Some((state, _)) = recovered {
             eprintln!("unclop: recovered state from an interrupted save");
             return Ok(state);
         }
-        parsed
+        parsed.map(|(state, _)| state)
     }
 
     pub fn save(&mut self, state: &State) -> Result<()> {
@@ -398,6 +505,7 @@ mod tests {
             was: None,
             changed_after_done: false,
             alias: Some("old".into()),
+            ctx: None,
         }
     }
 
@@ -423,31 +531,17 @@ mod tests {
     }
 
     #[test]
-    fn printed_id_wins_over_a_reused_current_id_in_one_file() {
-        // After a rename the first copy is y and was printed as x; the second copy's
-        // id shifted from x~2 to x.
-        let with = |path: &str, id: &str, alias: Option<&str>| {
-            let mut i = item(path, id, Status::Pending);
-            i.alias = alias.map(String::from);
-            i
-        };
+    fn paths_may_contain_hash() {
         let mut state = State::default();
-        state.entry_mut("a.rs").items = vec![
-            with("a.rs", "yyyyyyyyyy", Some("xxxxxxxxxx")),
-            with("a.rs", "xxxxxxxxxx", Some("xxxxxxxxxx~2")),
-        ];
-        assert_eq!(state.resolve("xxxxxxxxxx").unwrap().1, "yyyyyyyyyy");
-        assert_eq!(state.resolve("xxxxxxxxxx~2").unwrap().1, "xxxxxxxxxx");
-        assert_eq!(state.resolve("yyyyyyyyyy").unwrap().1, "yyyyyyyyyy");
-
-        // Another file showing the same id keeps the query ambiguous.
-        state.entry_mut("b.rs").items = vec![with("b.rs", "xxxxxxxxxx", None)];
-        assert!(
-            state
-                .resolve("xxxxxxxxxx")
-                .unwrap_err()
-                .to_string()
-                .contains("matches 2 items")
+        state.entry_mut("src/c#/a.rs").items.push(item(
+            "src/c#/a.rs",
+            "abcdef0123",
+            Status::Pending,
+        ));
+        assert!(state.item_by_key("src/c#/a.rs#abcdef0123").is_some());
+        assert_eq!(
+            state.resolve("src/c#/a.rs#abcdef0123").unwrap(),
+            ("src/c#/a.rs".to_string(), "abcdef0123".to_string())
         );
     }
 
@@ -486,6 +580,44 @@ mod tests {
         with_lock(dir.path(), |sf| {
             let loaded = sf.load()?;
             assert_eq!(loaded.files.len(), 2);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn a_save_cut_at_a_line_boundary_recovers_from_the_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let full = sample().serialize().unwrap();
+        let cut: String = full.lines().take(2).map(|l| format!("{l}\n")).collect();
+        assert!(
+            State::parse(&cut, Path::new("cut")).is_ok(),
+            "the cut file still parses"
+        );
+        fs::write(dir.path().join(JOURNAL_FILE), &full).unwrap();
+        fs::write(dir.path().join(STATE_FILE), cut).unwrap();
+        with_lock(dir.path(), |sf| {
+            let loaded = sf.load()?;
+            assert_eq!(loaded.files.len(), 2);
+            assert_eq!(loaded.chunks.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn an_old_file_without_the_end_record_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let old: String = sample()
+            .serialize()
+            .unwrap()
+            .lines()
+            .filter(|l| !l.contains("\"end\""))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        fs::write(dir.path().join(STATE_FILE), old).unwrap();
+        with_lock(dir.path(), |sf| {
+            assert_eq!(sf.load()?.files.len(), 2);
             Ok(())
         })
         .unwrap();

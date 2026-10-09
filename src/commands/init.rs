@@ -36,6 +36,7 @@ pub fn run(root: &Path, config_override: Option<&Path>) -> Result<i32> {
     let registry = Registry::new()?;
     let ctx = Ctx {
         root: root.to_path_buf(),
+        workdir: root.to_path_buf(),
         config,
         registry,
     };

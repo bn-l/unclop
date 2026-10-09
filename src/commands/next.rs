@@ -8,7 +8,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use super::{Ctx, Output};
 use crate::ids::Category;
 use crate::manifest::{self, ChunkFile, item_json, item_line};
-use crate::state::{Chunk, Item, State};
+use crate::state::{Chunk, Item, State, split_key};
 
 pub fn parse_worker(spec: Option<&str>) -> Result<(usize, usize)> {
     let Some(spec) = spec else {
@@ -66,7 +66,8 @@ pub fn continue_run(state: &State, keys: &[String]) -> Option<String> {
     let chunk = state
         .chunks
         .values()
-        .find(|c| c.keys.iter().any(|k| keys.contains(k)))?;
+        .filter(|c| c.keys.iter().any(|k| keys.contains(k)))
+        .max_by_key(|c| c.issued)?;
     Some(continue_with(state, &chunk.worker, chunk.only))
 }
 
@@ -216,7 +217,7 @@ pub fn run(
         },
     );
     for key in &keys {
-        if let Some((path, id)) = key.split_once('#')
+        if let Some((path, id)) = split_key(key)
             && let Some(item) = state.get_mut(path, id)
         {
             item.alias = None;

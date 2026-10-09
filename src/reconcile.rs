@@ -1,31 +1,39 @@
 //! Carries state from the previous scan onto the new one.
 //!
-//! Per file, the old and new id sequences are diffed without the `~n` ordinal,
-//! because renaming one of two identical items renumbers the other. Equal runs
-//! keep their state. Inside a replace hunk, old and new items are paired
-//! positionally while their kinds match and the state carries across the rewrite.
-//! Items left over on the old side are matched against leftover new items in
-//! other files by id without the ordinal (moves). Anything still unmatched on the
-//! old side is gone from source.
+//! Per file, the old and new id sequences are diffed without the `~n` ordinal.
+//! Equal runs keep their state and their ids. Inside a replace hunk, old and new
+//! items are paired positionally while their kinds match and the state carries
+//! across the rewrite. Items left over on the old side are matched against
+//! leftover new items in other files by id without the ordinal (moves). Anything
+//! still unmatched on the old side is gone from source.
+//!
+//! Ids are unique across the project and an item keeps its id until its text
+//! changes. New and rewritten items get the next free ordinal for their content,
+//! skipping ids that an item, an alias or a chunk still refers to, so a printed id
+//! never comes to mean a different item.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use crate::config::Rules;
 use crate::scan::Scanned;
-use crate::state::{Item, State, Status};
+use crate::state::{Item, State, Status, split_key};
 
 pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &Rules) {
     let mut renames: HashMap<String, String> = HashMap::new();
     let mut orphans: Vec<Item> = Vec::new();
-    let mut fresh: Vec<(String, String)> = Vec::new();
+    // New and rewritten items, by path and position, with the key a rewritten item
+    // had before. They get their ids once every kept id is known.
+    let mut unassigned: Vec<(String, usize, Option<String>)> = Vec::new();
 
+    // A skipped file keeps its record while it is missing, so a file skipped
+    // before it is generated stays skipped once it appears.
     let gone: Vec<String> = state
         .files
-        .keys()
-        .filter(|p| !scanned.contains_key(*p))
-        .cloned()
+        .iter()
+        .filter(|(p, e)| !scanned.contains_key(*p) && !e.record.skipped)
+        .map(|(p, _)| p.clone())
         .collect();
     for path in gone {
         if let Some(entry) = state.files.remove(&path) {
@@ -51,7 +59,8 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
         let new_ids: Vec<&str> = new.iter().map(|i| content_id(&i.id)).collect();
         let ops = capture_diff_slices(Algorithm::Myers, &old_ids, &new_ids);
 
-        let mut merged: Vec<Option<Item>> = (0..new.len()).map(|_| None).collect();
+        // For each new item: the old item it continues and whether its text changed.
+        let mut paired: Vec<Option<(usize, bool)>> = vec![None; new.len()];
         let mut taken = vec![false; old.len()];
         for op in ops {
             match op {
@@ -61,12 +70,8 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
                     len,
                 } => {
                     for k in 0..len {
-                        let (o, n) = (&old[old_index + k], &new[new_index + k]);
-                        merged[new_index + k] = Some(carry(o, n, false));
+                        paired[new_index + k] = Some((old_index + k, false));
                         taken[old_index + k] = true;
-                        if o.id != n.id {
-                            renames.insert(o.key(), n.key());
-                        }
                     }
                 }
                 DiffOp::Replace {
@@ -84,35 +89,43 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
                             .map(|j| old_index + j)
                             .find(|&j| !taken[j] && old[j].kind == n.kind);
                         if let Some(j) = found {
-                            merged[new_index + k] = Some(carry(&old[j], n, true));
+                            paired[new_index + k] = Some((j, true));
                             taken[j] = true;
-                            renames.insert(old[j].key(), n.key());
                         }
                     }
                 }
                 DiffOp::Insert { .. } | DiffOp::Delete { .. } => {}
             }
         }
+        repair_identical(&old, &new, &mut paired, &mut taken);
 
+        let mut items = Vec::with_capacity(new.len());
+        for (i, n) in new.iter().enumerate() {
+            match paired[i] {
+                Some((j, false)) => {
+                    let mut item = carry(&old[j], n, false);
+                    item.id = old[j].id.clone();
+                    items.push(item);
+                }
+                Some((j, true)) => {
+                    unassigned.push((path.clone(), i, Some(old[j].key())));
+                    items.push(carry(&old[j], n, true));
+                }
+                None => {
+                    unassigned.push((path.clone(), i, None));
+                    items.push(n.clone());
+                }
+            }
+        }
         for (o, t) in old.into_iter().zip(taken) {
             if !t {
                 orphans.push(o);
             }
         }
-        let mut items = Vec::with_capacity(new.len());
-        for (i, n) in new.into_iter().enumerate() {
-            match merged[i].take() {
-                Some(m) => items.push(m),
-                None => {
-                    fresh.push((path.clone(), n.id.clone()));
-                    items.push(n);
-                }
-            }
-        }
         entry.items = items;
     }
 
-    // Moves: an orphan whose id shows up once among fresh items in another file.
+    // Moves: an orphan whose content shows up once among new items in another file.
     let mut orphans_by_id: HashMap<String, Vec<Item>> = HashMap::new();
     for o in orphans {
         orphans_by_id
@@ -120,27 +133,69 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
             .or_default()
             .push(o);
     }
-    let mut fresh_count: HashMap<&str, usize> = HashMap::new();
-    for (_, id) in &fresh {
-        *fresh_count.entry(content_id(id)).or_default() += 1;
-    }
-    for (path, id) in &fresh {
-        if fresh_count.get(content_id(id)) != Some(&1) {
-            continue;
+    let new_content = |state: &State, path: &str, i: usize| -> String {
+        content_id(&state.files[path].items[i].id).to_string()
+    };
+    let mut fresh_count: HashMap<String, usize> = HashMap::new();
+    for (path, i, before) in &unassigned {
+        if before.is_none() {
+            *fresh_count.entry(new_content(state, path, *i)).or_default() += 1;
         }
-        let Some(candidates) = orphans_by_id.get_mut(content_id(id)) else {
-            continue;
+    }
+    unassigned.retain(|(path, i, before)| {
+        if before.is_some() {
+            return true;
+        }
+        let content = new_content(state, path, *i);
+        if fresh_count.get(&content) != Some(&1) {
+            return true;
+        }
+        let Some(candidates) = orphans_by_id.get_mut(&content) else {
+            return true;
         };
-        if candidates.len() != 1 {
-            continue;
+        let item = &mut state.files.get_mut(path).unwrap().items[*i];
+        if candidates.len() != 1 || candidates[0].kind != item.kind {
+            return true;
         }
         let o = candidates.pop().unwrap();
-        if let Some(item) = state.get_mut(path, id)
-            && o.kind == item.kind
-        {
-            let carried = carry(&o, item, false);
-            *item = carried;
-            renames.insert(o.key(), item.key());
+        *item = carry(&o, item, false);
+        item.id = o.id.clone();
+        renames.insert(o.key(), item.key());
+        false
+    });
+
+    // Ids in use: every kept item's id, every alias and every id a chunk holds,
+    // including chunk ids of deleted items that `done` reports as gone.
+    let pending_ids: HashSet<(String, usize)> = unassigned
+        .iter()
+        .map(|(path, i, _)| (path.clone(), *i))
+        .collect();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut duplicates: Vec<(String, usize, Option<String>)> = Vec::new();
+    for (path, entry) in &state.files {
+        for (i, item) in entry.items.iter().enumerate() {
+            if pending_ids.contains(&(path.clone(), i)) {
+                continue;
+            }
+            // State written by older versions repeats ids across files.
+            if !used.insert(item.id.clone()) {
+                duplicates.push((path.clone(), i, Some(item.key())));
+            }
+        }
+    }
+    used.extend(state.all_items().filter_map(|i| i.alias.clone()));
+    used.extend(
+        state
+            .chunks
+            .values()
+            .flat_map(|c| c.keys.iter())
+            .filter_map(|k| split_key(k).map(|(_, id)| id.to_string())),
+    );
+    for (path, i, before) in duplicates.into_iter().chain(unassigned) {
+        let item = &mut state.files.get_mut(&path).unwrap().items[i];
+        item.id = allocate(content_id(&item.id), &mut used);
+        if let Some(before) = before {
+            renames.insert(before, item.key());
         }
     }
 
@@ -165,6 +220,90 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
     }
 }
 
+/// The diff pairs identical items in order, so when one of several identical
+/// items in a file is deleted or added with no other item between them, the
+/// survivors can be paired with the wrong copies. Among unchanged items of one
+/// content, a new item whose context matches exactly one old copy is paired with
+/// that copy. The rest keep the pair the diff found if that copy is still free,
+/// then pair up in order.
+fn repair_identical(
+    old: &[Item],
+    new: &[Item],
+    paired: &mut [Option<(usize, bool)>],
+    taken: &mut [bool],
+) {
+    let mut by_content: HashMap<&str, (Vec<usize>, Vec<usize>)> = HashMap::new();
+    for (j, o) in old.iter().enumerate() {
+        // Old items rewritten into something else are not copies any more.
+        let rewritten = paired.contains(&Some((j, true)));
+        if !rewritten {
+            by_content.entry(content_id(&o.id)).or_default().0.push(j);
+        }
+    }
+    for (i, n) in new.iter().enumerate() {
+        if !matches!(paired[i], Some((_, true))) {
+            by_content.entry(content_id(&n.id)).or_default().1.push(i);
+        }
+    }
+    for (olds, news) in by_content.into_values() {
+        if olds.len() == news.len() || olds.is_empty() || news.is_empty() {
+            continue;
+        }
+        let found: Vec<Option<usize>> = news.iter().map(|&i| paired[i].map(|(j, _)| j)).collect();
+        for &i in &news {
+            paired[i] = None;
+        }
+        for &j in &olds {
+            taken[j] = false;
+        }
+        for &i in &news {
+            let Some(ctx) = new[i].ctx else { continue };
+            let mut same = olds
+                .iter()
+                .filter(|&&j| !taken[j] && old[j].ctx == Some(ctx));
+            if let (Some(&j), None) = (same.next(), same.next()) {
+                paired[i] = Some((j, false));
+                taken[j] = true;
+            }
+        }
+        for (&i, j) in news.iter().zip(found) {
+            if paired[i].is_none()
+                && let Some(j) = j
+                && !taken[j]
+            {
+                paired[i] = Some((j, false));
+                taken[j] = true;
+            }
+        }
+        let mut free = olds
+            .iter()
+            .filter(|&&j| !taken[j])
+            .copied()
+            .collect::<Vec<_>>()
+            .into_iter();
+        for &i in &news {
+            if paired[i].is_none()
+                && let Some(j) = free.next()
+            {
+                paired[i] = Some((j, false));
+                taken[j] = true;
+            }
+        }
+    }
+}
+
+/// `content`, or `content~2`, `content~3`, ... whichever is first not in `used`.
+fn allocate(content: &str, used: &mut HashSet<String>) -> String {
+    let mut id = content.to_string();
+    let mut n = 1;
+    while used.contains(&id) {
+        n += 1;
+        id = format!("{content}~{n}");
+    }
+    used.insert(id.clone());
+    id
+}
+
 /// An id without its `~n` ordinal: the hash of the item's content.
 fn content_id(id: &str) -> &str {
     id.split_once('~').map_or(id, |(hash, _)| hash)
@@ -176,16 +315,13 @@ fn carry(old: &Item, new: &Item, changed: bool) -> Item {
     item.ticks = old.ticks.clone();
     item.was = old.was.clone();
     item.changed_after_done = old.changed_after_done;
-    // The id the agent was shown keeps working after the id changes, whether by an
-    // edit or by a renumbered ordinal, until a chunk shows the new id.
-    item.alias = old
-        .alias
-        .clone()
-        .or_else(|| (old.id != new.id).then(|| old.id.clone()))
-        .filter(|alias| *alias != item.id);
+    item.alias = old.alias.clone();
     if changed {
         if item.was.is_none() {
             item.was = Some(old.text.clone());
+        }
+        if item.alias.is_none() {
+            item.alias = Some(old.id.clone());
         }
         if old.status == Status::Done {
             item.changed_after_done = true;
@@ -222,6 +358,7 @@ mod tests {
             was: None,
             changed_after_done: false,
             alias: None,
+            ctx: None,
         }
     }
 
@@ -498,19 +635,21 @@ mod tests {
         assert_eq!(renamed.was.as_deref(), Some("processed_result"));
         assert_eq!(renamed.alias.as_deref(), Some(X));
 
+        // The untouched copy keeps its id; no other item ever takes it.
         let untouched = &items[2];
-        assert_eq!(untouched.id, X);
+        assert_eq!(untouched.id, X2);
+        assert_eq!(untouched.alias, None);
         assert_eq!(untouched.status, Status::Done);
         assert_eq!(untouched.was, None);
         assert!(!untouched.changed_after_done);
 
         let chunk = &state.chunks["1/1"];
-        assert_eq!(chunk.keys, [format!("a.rs#{Y}"), format!("a.rs#{X}")]);
+        assert_eq!(chunk.keys, [format!("a.rs#{Y}"), format!("a.rs#{X2}")]);
         assert_eq!(chunk.snapshot.len(), 2);
 
         // The ids the chunk printed still reach the items they were printed for.
         assert_eq!(state.resolve(X).unwrap().1, Y);
-        assert_eq!(state.resolve(X2).unwrap().1, X);
+        assert_eq!(state.resolve(X2).unwrap().1, X2);
         assert_eq!(state.resolve(Y).unwrap().1, Y);
     }
 
@@ -523,7 +662,7 @@ mod tests {
             ("eeeeeeeeee", "gamma"),
         ]);
         let untouched = state.files["a.rs"].items.last().unwrap();
-        assert_eq!(untouched.id, X);
+        assert_eq!(untouched.id, X2);
         assert_eq!(untouched.status, Status::Done);
         assert_eq!(untouched.was, None);
         assert!(!untouched.changed_after_done);
@@ -551,7 +690,163 @@ mod tests {
         assert_eq!(state.files["a.rs"].items[0].status, Status::Pending);
         let moved = &state.files["b.rs"].items[0];
         assert_eq!(moved.status, Status::Done);
-        assert_eq!(moved.alias.as_deref(), Some(X2));
+        assert_eq!(moved.id, X2);
+        assert_eq!(moved.alias, None);
+    }
+
+    fn with_ctx(mut i: Item, ctx: u64) -> Item {
+        i.ctx = Some(ctx);
+        i
+    }
+
+    #[test]
+    fn deleting_one_of_two_copies_keeps_the_others_id() {
+        // Nothing between the copies tells them apart except the code around them.
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![
+            with_ctx(item("a.rs", X, Kind::Var, "processed_result", 1), 1),
+            with_ctx(done(item("a.rs", X2, Kind::Var, "processed_result", 2)), 2),
+        ];
+        state.chunks.insert(
+            "1/1".into(),
+            Chunk {
+                worker: "1/1".into(),
+                keys: vec![format!("a.rs#{X}"), format!("a.rs#{X2}")],
+                ..Chunk::default()
+            },
+        );
+        let scanned = [(
+            "a.rs".to_string(),
+            parsed(vec![with_ctx(
+                item("a.rs", X, Kind::Var, "processed_result", 1),
+                2,
+            )]),
+        )]
+        .into();
+        reconcile(&mut state, scanned, &rules());
+        let survivor = &state.files["a.rs"].items[0];
+        assert_eq!(survivor.id, X2);
+        assert_eq!(survivor.status, Status::Done);
+        assert_eq!(
+            state.chunks["1/1"].keys,
+            [format!("a.rs#{X}"), format!("a.rs#{X2}")]
+        );
+        // The deleted copy's printed id reaches nothing, so `done` can call it gone.
+        assert!(state.resolve(X).is_err());
+    }
+
+    #[test]
+    fn an_unclear_context_keeps_the_pairing_the_diff_found() {
+        // Copies in two functions. The agent deletes the first function and edits
+        // the line after the second copy, so no context matches; the function
+        // around the second copy still shows which copy survived.
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![
+            item("a.rs", "aaaaaaaaaa", Kind::Fn, "one", 1),
+            with_ctx(item("a.rs", X, Kind::Var, "processed_result", 2), 1),
+            item("a.rs", "bbbbbbbbbb", Kind::Fn, "two", 3),
+            with_ctx(done(item("a.rs", X2, Kind::Var, "processed_result", 4)), 2),
+        ];
+        let scanned = [(
+            "a.rs".to_string(),
+            parsed(vec![
+                item("a.rs", "bbbbbbbbbb", Kind::Fn, "two", 1),
+                with_ctx(item("a.rs", X, Kind::Var, "processed_result", 2), 3),
+            ]),
+        )]
+        .into();
+        reconcile(&mut state, scanned, &rules());
+        let survivor = &state.files["a.rs"].items[1];
+        assert_eq!(survivor.id, X2);
+        assert_eq!(survivor.status, Status::Done);
+    }
+
+    #[test]
+    fn same_text_in_two_files_gets_distinct_ids() {
+        let mut state = State::default();
+        let scanned = [
+            (
+                "a.rs".to_string(),
+                parsed(vec![item("a.rs", X, Kind::Param, "config_path", 1)]),
+            ),
+            (
+                "b.rs".to_string(),
+                parsed(vec![item("b.rs", X, Kind::Param, "config_path", 1)]),
+            ),
+        ]
+        .into();
+        reconcile(&mut state, scanned, &rules());
+        assert_eq!(state.files["a.rs"].items[0].id, X);
+        assert_eq!(state.files["b.rs"].items[0].id, X2);
+    }
+
+    #[test]
+    fn duplicate_ids_from_an_older_state_are_renumbered() {
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![done(item("a.rs", X, Kind::Param, "config_path", 1))];
+        state.entry_mut("b.rs").items = vec![item("b.rs", X, Kind::Param, "config_path", 1)];
+        state.chunks.insert(
+            "1/1".into(),
+            Chunk {
+                worker: "1/1".into(),
+                keys: vec![format!("a.rs#{X}"), format!("b.rs#{X}")],
+                snapshot: [
+                    (format!("a.rs#{X}"), "config_path".to_string()),
+                    (format!("b.rs#{X}"), "config_path".to_string()),
+                ]
+                .into(),
+                ..Chunk::default()
+            },
+        );
+        let scanned = [
+            ("a.rs".to_string(), Scanned::Unchanged),
+            ("b.rs".to_string(), Scanned::Unchanged),
+        ]
+        .into();
+        reconcile(&mut state, scanned, &rules());
+        assert_eq!(state.files["a.rs"].items[0].id, X);
+        assert_eq!(state.files["a.rs"].items[0].status, Status::Done);
+        assert_eq!(state.files["b.rs"].items[0].id, X2);
+        assert_eq!(state.files["b.rs"].items[0].status, Status::Pending);
+        assert_eq!(
+            state.chunks["1/1"].keys,
+            [format!("a.rs#{X}"), format!("b.rs#{X2}")]
+        );
+        assert!(
+            state.chunks["1/1"]
+                .snapshot
+                .contains_key(&format!("b.rs#{X2}"))
+        );
+    }
+
+    #[test]
+    fn ids_a_chunk_still_refers_to_are_not_reused() {
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![item("a.rs", X, Kind::Var, "processed_result", 1)];
+        state.chunks.insert(
+            "1/1".into(),
+            Chunk {
+                worker: "1/1".into(),
+                keys: vec![format!("a.rs#{X}")],
+                ..Chunk::default()
+            },
+        );
+        // The agent deletes the declaration, then a later edit adds the same text back.
+        reconcile(
+            &mut state,
+            [("a.rs".to_string(), parsed(vec![]))].into(),
+            &rules(),
+        );
+        reconcile(
+            &mut state,
+            [(
+                "a.rs".to_string(),
+                parsed(vec![item("a.rs", X, Kind::Var, "processed_result", 1)]),
+            )]
+            .into(),
+            &rules(),
+        );
+        assert_eq!(state.files["a.rs"].items[0].id, X2);
     }
 
     #[test]

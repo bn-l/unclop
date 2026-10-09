@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use super::{Ctx, Output, next};
-use crate::state::{State, Status, key_of};
+use crate::state::{ResolveError, State, Status, key_of};
 
 fn parse_rules(spec: &str) -> Result<Vec<usize>> {
     let mut out = Vec::new();
@@ -20,21 +20,6 @@ fn parse_rules(spec: &str) -> Result<Vec<usize>> {
         anyhow::bail!("list the rules you checked, e.g. 1,2,3");
     }
     Ok(out)
-}
-
-/// The chunk key an id was issued under. Called for ids that no longer exist in
-/// state, so a match means the source was deleted.
-fn issued_key(state: &State, query: &str) -> Option<String> {
-    state.chunks.values().find_map(|c| {
-        c.keys
-            .iter()
-            .find(|k| {
-                k.split_once('#').is_some_and(|(_, id)| {
-                    id == query || (query.len() >= 6 && id.starts_with(query))
-                })
-            })
-            .cloned()
-    })
 }
 
 pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<Output> {
@@ -62,7 +47,13 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         let (path, id) = match state.resolve(query) {
             Ok(found) => found,
             Err(e) => {
-                if let Some(key) = issued_key(state, query) {
+                // Only an id that matches nothing can belong to a deleted item; an
+                // ambiguous one matches items that still exist.
+                let gone = match e {
+                    ResolveError::NotFound(_) => state.issued_key(query),
+                    ResolveError::Ambiguous(_) => None,
+                };
+                if let Some(key) = gone {
                     lines.push(format!("{query}: gone from source, counted as done"));
                     results.push(json!({ "id": query, "outcome": "gone" }));
                     touched.push(key);
@@ -77,9 +68,8 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         let key = key_of(&path, &id);
         touched.push(key.clone());
         let snapshot = state
-            .chunks
-            .values()
-            .find_map(|c| c.snapshot.get(&key).cloned());
+            .chunk_holding(&key)
+            .and_then(|c| c.snapshot.get(&key).cloned());
         let rule_count = {
             let item = state.item_by_key(&key).expect("resolved item exists");
             ctx.config.rules.for_category(item.kind.category()).len()
@@ -125,8 +115,9 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
             item.ticks[r - 1] = true;
         }
         if item.ticks.iter().all(|t| *t) {
+            // The alias stays: it reserves the id the chunk printed, so no new item
+            // takes it while the agent may still type it.
             item.status = Status::Done;
-            item.alias = None;
             item.changed_after_done = false;
             lines.push(format!("{}: done", item.id));
             results.push(json!({ "id": item.id, "outcome": "done" }));
@@ -153,4 +144,62 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         code,
         then: next::continue_run(state, &touched),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::config::{Config, Rules};
+    use crate::ids::Kind;
+    use crate::scan::lang::Registry;
+    use crate::state::{Chunk, Item};
+
+    #[test]
+    fn the_latest_chunk_supplies_the_snapshot() {
+        let ctx = Ctx {
+            root: PathBuf::new(),
+            workdir: PathBuf::new(),
+            config: Config {
+                rules: Rules {
+                    identifier: vec!["a".into()],
+                    ..Rules::default()
+                },
+                ..Config::default()
+            },
+            registry: Registry::default(),
+        };
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![Item {
+            path: "a.rs".into(),
+            id: "aaaaaaaaaa".into(),
+            kind: Kind::Fn,
+            text: "new_name".into(),
+            scope: None,
+            line: [1, 1],
+            status: Status::Pending,
+            ticks: vec![false],
+            was: None,
+            changed_after_done: false,
+            alias: None,
+            ctx: None,
+        }];
+        // A chunk from an earlier one-worker run, then the current chunk of worker 1/2.
+        for (worker, issued, text) in [("1/1", 1, "old_name"), ("1/2", 2, "new_name")] {
+            state.chunks.insert(
+                worker.into(),
+                Chunk {
+                    worker: worker.into(),
+                    keys: vec!["a.rs#aaaaaaaaaa".into()],
+                    issued,
+                    snapshot: [("a.rs#aaaaaaaaaa".to_string(), text.to_string())].into(),
+                    only: None,
+                },
+            );
+        }
+        let out = run(&ctx, &mut state, &["aaaaaaaaaa:1".to_string()], false).unwrap();
+        assert!(out.lines[0].contains("unchanged"), "{:?}", out.lines);
+        assert!(state.files["a.rs"].items[0].is_pending());
+    }
 }

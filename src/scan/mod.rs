@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use rayon::prelude::*;
 use tree_sitter::{Node, Parser};
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::config::Config;
 use crate::ids::{Kind, hash_id};
@@ -101,6 +102,17 @@ pub fn walk(root: &Path) -> Result<Vec<(PathBuf, String)>> {
     Ok(out)
 }
 
+/// What the stored items depend on besides the files themselves: the unclop
+/// version, the queries and `strings.min_words`.
+pub fn scan_key(registry: &Registry, config: &Config) -> String {
+    format!(
+        "{}/{}/{:016x}",
+        env!("CARGO_PKG_VERSION"),
+        config.strings.min_words,
+        registry.fingerprint()
+    )
+}
+
 pub fn scan_all(
     registry: &Registry,
     root: &Path,
@@ -108,9 +120,10 @@ pub fn scan_all(
     state: &State,
 ) -> Result<BTreeMap<String, Scanned>> {
     let files = walk(root)?;
+    let same_settings = state.scan_key == scan_key(registry, config);
     let results: Vec<Result<Option<(String, Scanned)>>> = files
         .par_iter()
-        .map(|(abs, rel)| scan_one(registry, abs, rel, config, state))
+        .map(|(abs, rel)| scan_one(registry, abs, rel, config, state, same_settings))
         .collect();
     let mut map = BTreeMap::new();
     for r in results {
@@ -127,6 +140,7 @@ fn scan_one(
     rel: &str,
     config: &Config,
     state: &State,
+    same_settings: bool,
 ) -> Result<Option<(String, Scanned)>> {
     let Some(lang) = registry.for_path(abs) else {
         return Ok(None);
@@ -143,7 +157,8 @@ fn scan_one(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     if let Some(entry) = state.files.get(rel)
-        && (entry.record.skipped || (entry.record.mtime == mtime && entry.record.size == size))
+        && (entry.record.skipped
+            || (same_settings && entry.record.mtime == mtime && entry.record.size == size))
     {
         return Ok(Some((rel.to_string(), Scanned::Unchanged)));
     }
@@ -174,6 +189,7 @@ pub fn extract(lang: &Lang, rel: &str, src: &str, config: &Config) -> Result<Vec
     strings::extract(lang, &tree, src, config.strings.min_words, &mut raws);
     raws.sort_by_key(|r| (r.start, r.kind.category(), r.end));
 
+    let lines: Vec<&str> = src.lines().collect();
     let mut counts: HashMap<String, u32> = HashMap::new();
     let items = raws
         .into_iter()
@@ -182,6 +198,7 @@ pub fn extract(lang: &Lang, rel: &str, src: &str, config: &Config) -> Result<Vec
             let n = counts.entry(base.clone()).or_insert(0);
             *n += 1;
             let id = if *n == 1 { base } else { format!("{base}~{n}") };
+            let ctx = context_hash(&lines, r.row1 as usize);
             Item {
                 path: rel.to_string(),
                 id,
@@ -194,10 +211,24 @@ pub fn extract(lang: &Lang, rel: &str, src: &str, config: &Config) -> Result<Vec
                 was: None,
                 changed_after_done: false,
                 alias: None,
+                ctx: Some(ctx),
             }
         })
         .collect();
     Ok(items)
+}
+
+/// Hash of the line at `row` and the next non-blank line, trimmed. Two identical
+/// comments or declarations usually differ in the code around them.
+fn context_hash(lines: &[&str], row: usize) -> u64 {
+    let here = lines.get(row).map_or("", |l| l.trim());
+    let next = lines
+        .iter()
+        .skip(row + 1)
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
+    xxh3_64(format!("{here}\n{next}").as_bytes())
 }
 
 /// Pre-order visit of every node.

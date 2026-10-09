@@ -141,14 +141,16 @@ When no items are pending `next` prints a message that points at `report`. `repo
 | `unclop init` | Writes the default configuration when it is absent. Scans the repository and prints counts per category. |
 | `unclop next [--worker I/N] [--only <category>] [--force]` | Prints the next chunk. `--only` takes items of one category: `identifier`, `comment` or `string`. Exits 2 while the previous chunk of this worker has unresolved items. |
 | `unclop done <id>:<rules>... [--keep]` | Marks items done and records the rule numbers that were verified. |
-| `unclop skip <id>...` / `unclop skip --file <path>...` | Marks items or whole files as skipped. A skipped file keeps its record and its contents are not parsed until `reopen --file` clears the flag. |
+| `unclop skip <id>...` / `unclop skip --file <path>...` | Marks items or whole files as skipped. A skipped file keeps its record and its contents are not parsed until `reopen --file` clears the flag. A path is relative to the directory the command runs in. A file that does not exist yet stays skipped when it appears. A file that unclop does not review is refused. |
 | `unclop reopen <id>...` / `--changed` / `--file <path>...` | Returns items to pending and clears their rule ticks. `--changed` reopens every item whose text changed after it was marked done. `--file` clears the skipped flag of a file. |
 | `unclop status` | Prints counts per file and per category. Exits 1 while any item is pending. |
 | `unclop report` | Prints the recorded before and after text for every done item. Lists the skipped items and files. |
 
 `-C <dir>` runs against another directory. `--config <path>` selects another configuration file. The environment variable `UNCLOP_CONFIG` sets the configuration path. `unclop --help` leaves out `--config` and `--force` because the agent reads the help.
 
-Item ids are ten hexadecimal characters. Any unique prefix of six or more characters resolves an id. When a prefix is ambiguous use the `path#id` form.
+Item ids are ten hexadecimal characters. A prefix of six to nine characters that matches one item resolves an id. When a prefix is ambiguous use the `path#id` form.
+
+Every command except `init` works on the nearest `.unclop.jsonl` in the current directory or a directory above it, so a command run in a subdirectory works on the project instead of starting a second review there.
 
 ## How it works
 
@@ -156,11 +158,11 @@ Item ids are ten hexadecimal characters. Any unique prefix of six or more charac
 
 2. **Extract.** Each language has a declaration query and a string query. The comment extractor merges adjacent line comments and classifies documentation. Identifier candidates pass through the exclusion lists. String literals pass through the prose filter. Every item receives a scope label and a source span.
 
-3. **Assign ids.** The id is the first ten hexadecimal characters of the xxh3-64 hash of the category, the kind and the normalized text. Duplicate content within one file receives an ordinal suffix such as `~2`. Lines and paths are metadata rather than identity.
+3. **Assign ids.** The id is the first ten hexadecimal characters of the xxh3-64 hash of the category, the kind and the normalized text. Duplicate content anywhere in the project receives an ordinal suffix such as `~2`, so every id names one item. An item keeps its id until its text changes. A new or rewritten item gets the next free ordinal and never an id that another item, an alias or a chunk still refers to, so a printed id never comes to mean a different item. Lines and paths are metadata rather than identity.
 
-4. **Reconcile.** Every command rescans the repository before it does its work. The reconcile step diffs the old and the new id sequence of each file with the Myers algorithm. Unchanged runs keep their status and rule ticks. Inside a rewrite the diff pairs old and new items by kind so that the state follows an edit. Items that moved to another file and files that were renamed are matched by content hash. A done item that is rewritten keeps the done status and the previous text is stored in its `was` field. The item is marked `changed_after_done` and `reopen --changed` selects it.
+4. **Reconcile.** Every command rescans the repository before it does its work. The reconcile step diffs the old and the new id sequence of each file with the Myers algorithm. Unchanged runs keep their status and rule ticks. Inside a rewrite the diff pairs old and new items by kind so that the state follows an edit. When one of several identical items in a file is deleted or added, the survivors are told apart by a hash of the line each one ends on and the next non-blank line. Items that moved to another file and files that were renamed are matched by content hash. A done item that is rewritten keeps the done status and the previous text is stored in its `was` field. The item is marked `changed_after_done` and `reopen --changed` selects it.
 
-5. **Store.** The state file is `.unclop.jsonl` in the project root. Commit it with the code. A command holds an exclusive lock on the state file for its entire run. A save writes the new content to the journal file `.unclop.jsonl.tmp` and then rewrites the state file in place. A load that finds an empty or damaged state file next to a journal recovers from the journal. A file with unchanged mtime and size is not parsed again.
+5. **Store.** The state file is `.unclop.jsonl` in the project root. Commit it with the code. A command holds an exclusive lock on the state file for its entire run. A save writes the new content to the journal file `.unclop.jsonl.tmp` and then rewrites the state file in place. The state file ends with an end record. A load that finds an empty, damaged or unterminated state file next to a journal recovers from the journal. A file with unchanged mtime and size is not parsed again unless `strings.min_words`, the queries or the unclop version changed since the last scan.
 
 6. **Build a chunk.** `next` adds whole files to a chunk until the chunk size is reached. The default chunk size is 100 items. Within a file the order is identifiers then comments then strings. `next --only <category>` restricts the chunk to one category. A run that repeats `next --only identifier` until no identifier is pending and then switches to `--only comment` reviews every identifier in the codebase before the first comment. The chunk record stores the normalized text of each item at issue time, the worker and the `--only` category. `done` uses the snapshot for the unchanged check. The `then:` line at the end of `next`, `done` and `skip` repeats `--worker` and repeats `--only` while that category has pending items for the worker.
 

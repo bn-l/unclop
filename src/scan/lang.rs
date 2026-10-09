@@ -7,6 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use tree_sitter::{Language, Query};
+use xxhash_rust::xxh3::xxh3_64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LangId {
@@ -35,6 +36,8 @@ pub struct Lang {
 pub struct Registry {
     langs: Vec<Lang>,
     by_ext: HashMap<&'static str, usize>,
+    /// Hash of every compiled-in query, so a change to a query rescans unchanged files.
+    fingerprint: u64,
 }
 
 impl Registry {
@@ -181,6 +184,15 @@ impl Registry {
                 })
                 .with_context(|| format!("compiling {name} {what} query"))
         };
+        self.fingerprint = xxh3_64(
+            &[
+                &self.fingerprint.to_le_bytes(),
+                name.as_bytes(),
+                decls.as_bytes(),
+                strings.as_bytes(),
+            ]
+            .concat(),
+        );
         let decls = compile(decls, "decls.scm")?;
         let strings = compile(strings, "strings.scm")?;
         let index = self.langs.len();
@@ -207,6 +219,10 @@ impl Registry {
     }
 
     /// Picks a grammar by extension, or by shebang for files without one.
+    pub fn fingerprint(&self) -> u64 {
+        self.fingerprint
+    }
+
     pub fn for_path(&self, path: &Path) -> Option<&Lang> {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             let ext = ext.to_ascii_lowercase();

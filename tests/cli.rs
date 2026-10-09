@@ -582,6 +582,327 @@ fn renaming_one_of_two_same_names() {
     assert!(twins_report.iter().all(|i| i["status"] == "done"));
 }
 
+/// A project with only `files` and the test config.
+fn bare(files: &[(&str, &str)]) -> Project {
+    let dir = tempfile::tempdir().unwrap();
+    for (path, src) in files {
+        let path = dir.path().join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, src).unwrap();
+    }
+    let config = dir.path().join("config.yaml");
+    fs::write(&config, CONFIG).unwrap();
+    Project { dir, config }
+}
+
+fn var_ids(p: &Project) -> Vec<String> {
+    let chunk = json(p, &["next", "--__JSON__"]);
+    items(&chunk)
+        .iter()
+        .filter(|i| i["kind"] == "var")
+        .map(|i| i["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn stdout_of(c: &mut Command) -> String {
+    String::from_utf8(c.output().unwrap().stdout).unwrap()
+}
+
+#[test]
+fn the_same_name_in_two_files_gets_two_ids() {
+    let p = bare(&[
+        ("src/a.rs", "pub fn load(config_path: &str) {}\n"),
+        ("src/b.rs", "pub fn save(config_path: &str) {}\n"),
+    ]);
+    unclop(&p).arg("init").assert().success();
+    let text = stdout_of(unclop(&p).arg("next"));
+    let done_line = text
+        .lines()
+        .find(|l| l.starts_with("  unclop done "))
+        .expect("a done command");
+    let args: Vec<&str> = done_line.split_whitespace().skip(2).collect();
+    let mut ids: Vec<&str> = args.iter().map(|a| a.split(':').next().unwrap()).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), args.len(), "ids repeat: {done_line}");
+
+    unclop(&p)
+        .arg("done")
+        .args(&args)
+        .arg("--keep")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gone").not());
+    unclop(&p)
+        .arg("next")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Nothing pending"));
+}
+
+#[test]
+fn an_ambiguous_prefix_is_not_called_gone() {
+    let p = bare(&[("src/twins.rs", TWINS)]);
+    unclop(&p).arg("init").assert().success();
+    let ids = var_ids(&p);
+    unclop(&p)
+        .args(["done", &format!("{}:1,2,3", &ids[0][..6]), "--keep"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("matches 2 items"))
+        .stdout(predicate::str::contains("gone").not());
+}
+
+#[test]
+fn the_id_in_a_reply_reaches_the_same_item() {
+    let p = bare(&[("src/twins.rs", TWINS)]);
+    unclop(&p).arg("init").assert().success();
+    let ids = var_ids(&p);
+    fs::write(p.dir.path().join("src/twins.rs"), TWINS_EDITED).unwrap();
+
+    // The untouched copy is refused as unchanged; the reply names it.
+    let reply = stdout_of(unclop(&p).args(["done", &format!("{}:1,2,3", ids[1])]));
+    let named = reply.split(':').next().unwrap().to_string();
+    assert!(reply.contains("unchanged since it was issued"), "{reply}");
+
+    // Retrying with the id from the reply marks that same copy.
+    unclop(&p)
+        .args(["done", &format!("{named}:1,2,3"), "--keep"])
+        .assert()
+        .success();
+    let report = json(&p, &["report", "--__JSON__"]);
+    let settled: Vec<&Value> = report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|f| f["items"].as_array().unwrap().iter())
+        .filter(|i| i["kind"] == "var")
+        .collect();
+    assert_eq!(settled.len(), 1, "{settled:#?}");
+    assert_eq!(settled[0]["text"], "running_total");
+}
+
+#[test]
+fn deleting_one_of_two_copies() {
+    let p = bare(&[("src/twins.rs", TWINS)]);
+    unclop(&p).arg("init").assert().success();
+    let ids = var_ids(&p);
+    fs::write(
+        p.dir.path().join("src/twins.rs"),
+        "fn one() { }\nfn two() { let running_total = 2; }\n",
+    )
+    .unwrap();
+
+    let out = unclop(&p).arg("next").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let listed = String::from_utf8(out.stdout).unwrap();
+    let survivors: Vec<&str> = listed
+        .lines()
+        .filter(|l| l.contains("running_total"))
+        .collect();
+    assert_eq!(survivors.len(), 1, "{listed}");
+    assert!(
+        survivors[0].starts_with(&format!("  {} ", ids[1])),
+        "{listed}"
+    );
+
+    unclop(&p)
+        .args(["done", &format!("{}:1,2,3", ids[0])])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "{}: gone from source",
+            ids[0]
+        )));
+    unclop(&p)
+        .args(["done", &format!("{}:1,2,3", ids[1]), "--keep"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("{}: done", ids[1])));
+}
+
+#[test]
+fn deleting_one_of_two_identical_comments_in_one_function() {
+    let comment = "// Leverage the robust helper seamlessly";
+    let p = bare(&[(
+        "src/a.rs",
+        &format!("fn f() {{\n    {comment}\n    a();\n    {comment}\n    b();\n}}\n"),
+    )]);
+    unclop(&p).arg("init").assert().success();
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    let ids: Vec<String> = items(&chunk)
+        .iter()
+        .filter(|i| i["kind"] == "comment")
+        .map(|i| i["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    fs::write(
+        p.dir.path().join("src/a.rs"),
+        format!("fn f() {{\n    a();\n    {comment}\n    b();\n}}\n"),
+    )
+    .unwrap();
+
+    unclop(&p)
+        .args(["done", &format!("{}:1,2", ids[0])])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "{}: gone from source",
+            ids[0]
+        )));
+    unclop(&p)
+        .args(["done", &format!("{}:1,2", ids[1]), "--keep"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!("{}: done", ids[1])));
+}
+
+#[test]
+fn a_path_with_a_hash() {
+    let p = bare(&[("src/c#/a.rs", "pub fn handle_request() {}\n")]);
+    unclop(&p).arg("init").assert().success();
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    let id = items(&chunk)[0]["id"].as_str().unwrap().to_string();
+    unclop(&p)
+        .args(["done", &format!("{id}:1,2,3"), "--keep"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(": done"));
+    unclop(&p)
+        .args(["reopen", &format!("src/c#/a.rs#{id}")])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pending again"));
+}
+
+#[test]
+fn changing_min_words_applies_to_unchanged_files() {
+    let p = bare(&[(
+        "src/a.rs",
+        "pub fn f() -> &'static str { \"three word message\" }\n",
+    )]);
+    unclop(&p).arg("init").assert().success();
+    let strings = |p: &Project| {
+        items(&json(p, &["next", "--force", "--__JSON__"]))
+            .iter()
+            .filter(|i| i["kind"] == "string")
+            .count()
+    };
+    assert_eq!(strings(&p), 1);
+    fs::write(&p.config, CONFIG.replace("min_words: 2", "min_words: 4")).unwrap();
+    assert_eq!(strings(&p), 0);
+}
+
+#[test]
+fn commands_use_the_state_in_a_parent_directory() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+    let src = p.dir.path().join("src");
+    let in_src = || {
+        let mut c = Command::cargo_bin("unclop").unwrap();
+        c.current_dir(&src).env("UNCLOP_CONFIG", &p.config);
+        c
+    };
+    in_src()
+        .arg("status")
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("src/lib.rs"));
+    assert!(!src.join(".unclop.jsonl").exists());
+    // A path given from the subdirectory is relative to it.
+    in_src()
+        .args(["skip", "--file", "gen.rs"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("src/gen.rs: file skipped"));
+
+    let empty = tempfile::tempdir().unwrap();
+    Command::cargo_bin("unclop")
+        .unwrap()
+        .current_dir(empty.path())
+        .env("UNCLOP_CONFIG", &p.config)
+        .arg("status")
+        .assert()
+        .code(70)
+        .stderr(predicate::str::contains("unclop init"));
+    assert!(!empty.path().join(".unclop.jsonl").exists());
+}
+
+#[test]
+fn skip_file_resolves_dot_dot() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+    unclop(&p)
+        .args(["skip", "--file", "src/../src/gen.rs"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("src/gen.rs: file skipped"));
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    assert!(items(&chunk).iter().all(|i| i["path"] != "src/gen.rs"));
+}
+
+#[test]
+fn skipping_a_file_before_it_exists_sticks() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+    unclop(&p)
+        .args(["skip", "--file", "src/later.rs"])
+        .assert()
+        .success();
+    unclop(&p).arg("status").assert().code(1);
+    fs::write(
+        p.dir.path().join("src/later.rs"),
+        "pub fn generated_later() {}\n",
+    )
+    .unwrap();
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    assert!(items(&chunk).iter().all(|i| i["path"] != "src/later.rs"));
+}
+
+#[test]
+fn skipping_a_file_unclop_does_not_review_is_refused() {
+    let p = setup();
+    fs::write(p.dir.path().join("README.md"), "# readme\n").unwrap();
+    unclop(&p).arg("init").assert().success();
+    unclop(&p)
+        .args(["skip", "--file", "README.md"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains(
+            "README.md: unclop does not review this file",
+        ));
+}
+
+#[test]
+fn reopen_keeps_the_original_text() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    let var_id = id_where(&items(&chunk), |i| i["text"] == "processed_result");
+    fs::write(p.dir.path().join("src/lib.rs"), LIB_EDITED).unwrap();
+    unclop(&p)
+        .args(["done", &format!("{var_id}:1,2,3")])
+        .assert()
+        .success();
+
+    let renamed = |p: &Project| -> Value {
+        json(p, &["report", "--__JSON__"])["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|f| f["items"].as_array().unwrap().iter().cloned())
+            .find(|i| i["kind"] == "var" && i["path"] == "src/lib.rs" && i["text"] != "message")
+            .expect("the renamed variable is settled")
+    };
+    let id = renamed(&p)["id"].as_str().unwrap().to_string();
+    unclop(&p).args(["reopen", &id]).assert().success();
+    unclop(&p)
+        .args(["done", &format!("{id}:1,2,3"), "--keep"])
+        .assert()
+        .success();
+    assert_eq!(renamed(&p)["was"], "processed_result");
+}
+
 #[test]
 fn missing_config_points_at_init() {
     let p = setup();

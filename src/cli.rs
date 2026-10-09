@@ -28,7 +28,8 @@ config so the agent reads them fresh each time.";
 const WORKFLOW: &str =
     "  1. A person runs `unclop init` once in the project root. It writes the config file
      when none exists and scans the tree. The prompt and the rules in the config are
-     placeholders until a person edits them.
+     placeholders until a person edits them. Every other command works on the
+     nearest .unclop.jsonl in the current directory or above it.
   2. The agent runs `unclop next`. The output is the prompt, the numbered rules and a
      chunk of pending items. Each item has an id, a kind, a line span and a scope.
   3. The agent edits the source. Renaming a declaration, rewriting a comment and
@@ -41,17 +42,19 @@ const WORKFLOW: &str =
      to `unclop report`.";
 
 const IDS: &str =
-    "  An id is ten hex characters, for example 77b1e0a2f1. Identical text repeated in one
-  file gets a suffix: 77b1e0a2f1~2. Commands accept a full id, a prefix of six or more
-  characters that matches one item, or path#id when a prefix matches several items.
-  An item keeps its state when its text changes and stays reachable by the id the
-  chunk printed.";
+    "  An id is ten hex characters, for example 77b1e0a2f1. Identical text anywhere in the
+  project gets a suffix: 77b1e0a2f1~2. Commands accept a full id, a prefix of six to
+  nine characters that matches one item, or path#id when a prefix matches several
+  items. An item keeps its id until its text changes, keeps its state when its text
+  changes and stays reachable by the id the chunk printed. An id is never given to
+  another item while a chunk still shows it.";
 
 const RESCANNING: &str =
     "  Every command rescans the tree before it does anything else. Edits are picked up
   without a separate refresh command and the line numbers in a chunk are current at
   the moment it is printed. Files whose size and modification time are unchanged are
-  not parsed again.";
+  not parsed again, unless strings.min_words or the unclop version changed since the
+  last scan.";
 
 const FILES: &str =
     "  .unclop.jsonl                        state, one JSON record per line. Commit it.
@@ -134,7 +137,8 @@ its name or text is fixed by something outside the codebase, such as a trait met
 interface member, a wire format or a third-party API.
 
 --file marks a whole file skipped, drops its items and keeps it out of future chunks. \
-Use it for generated files. `reopen --file` undoes it.";
+Use it for generated files. A path is relative to the directory the command runs in. A \
+file that does not exist yet stays skipped when it appears. `reopen --file` undoes it.";
 
 const REOPEN_LONG: &str = "\
 Sets items back to pending with every rule unchecked. --changed selects every done item \
@@ -152,8 +156,9 @@ current text and its old text on a `was:` line. A done item whose text did not c
 is printed as kept. Skipped items and skipped files are listed. Pending items are not \
 shown.";
 
-const DIR_HELP: &str = "Run in this directory instead of the current one. The state file and the \
-project notes file are read from and written to it.";
+const DIR_HELP: &str = "Run in this directory instead of the current one. Every command except init \
+uses the nearest .unclop.jsonl in this directory or above it, and reads the project notes file \
+next to it.";
 const CONFIG_HELP: &str = "Read this config file instead of $XDG_CONFIG_HOME/unclop/config.md. A path \
 that does not end in .md is read as YAML. The UNCLOP_CONFIG environment variable does the same.";
 const WORKER_HELP: &str = "Take only the files assigned to worker I of N, for example 2/4. Files are \

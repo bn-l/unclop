@@ -34,7 +34,8 @@ pub fn run(ctx: &Ctx, state: &State) -> Result<Output> {
         let mut items_json = Vec::new();
         for item in settled {
             match (item.status, &item.was) {
-                (Status::Done, Some(was)) => {
+                // `was` survives a reopen; an edit back to that text is not a rewrite.
+                (Status::Done, Some(was)) if *was != item.text => {
                     rewritten += 1;
                     lines.push(format!(
                         "  {:<8} {}",
@@ -43,7 +44,7 @@ pub fn run(ctx: &Ctx, state: &State) -> Result<Output> {
                     ));
                     lines.push(format!("  {:<8} was: {}", "", shown(item, was)));
                 }
-                (Status::Done, None) => {
+                (Status::Done, _) => {
                     kept += 1;
                     lines.push(format!(
                         "  {:<8} kept: {}",

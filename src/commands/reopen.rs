@@ -4,10 +4,11 @@ use serde_json::json;
 use super::{Ctx, Output, rel_path};
 use crate::state::{Item, State, Status};
 
+/// Back to pending with every rule unchecked. `was` stays, so `report` still shows
+/// the text from before the first rewrite.
 fn reset(item: &mut Item) {
     item.status = Status::Pending;
     item.ticks.fill(false);
-    item.was = None;
     item.changed_after_done = false;
 }
 
@@ -55,7 +56,14 @@ pub fn run(
     }
 
     for given in files {
-        let rel = rel_path(&ctx.root, given);
+        let rel = match rel_path(&ctx.root, &ctx.workdir, given) {
+            Ok(rel) => rel,
+            Err(e) => {
+                lines.push(format!("{given}: {e:#}"));
+                code = 1;
+                continue;
+            }
+        };
         match state.files.get_mut(&rel) {
             Some(entry) if entry.record.skipped => {
                 entry.record.skipped = false;

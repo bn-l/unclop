@@ -1,6 +1,6 @@
 [package]
 name = "unclop"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Inventory comments, identifiers and strings with tree-sitter and hand them to an agent in chunks"
 license = "MIT"

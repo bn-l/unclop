@@ -69,8 +69,9 @@ const CONFIG_FORMAT: &str =
   \"- \" or \"1. \" at the start of a line and continues on the lines below it. After
   a blank line only an indented line continues it. Text between a heading and its
   list is printed above that category's rules, only in chunks that contain the
-  category. Optional front matter between two \"---\" lines sets chunk_size and
-  strings.min_words. A config path that does not end in .md is read as YAML, the
+  category. Every list item in a section is a rule, so a list in a section's text
+  must be indented. Optional front matter between two \"---\" lines sets chunk_size
+  and strings.min_words. A config path that does not end in .md is read as YAML, the
   older format.";
 
 const EXIT_CODES: &str = "  0   the command completed

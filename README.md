@@ -195,9 +195,9 @@ This text is printed above the comment rules, only in chunks that contain commen
 1. ...
 ```
 
-Text before the first `## ` heading is the prompt at the top of every chunk. Each of the three sections holds the rules for its category. A rule starts with `- `, `* `, `+ `, `1. ` or `1) ` at the start of a line and continues on the lines below it. After a blank line only an indented line continues the rule. The position of a rule in its list is the rule number that `done` records, whatever number the file shows. Text between a heading and its list is printed above that category's rules. Only `## ` headings start sections, so a prompt can contain `#` and `###` headings. The front matter is optional.
+Text before the first `## ` heading is the prompt at the top of every chunk. Each of the three sections holds the rules for its category. A rule starts with `- `, `* `, `+ `, `1. ` or `1) ` at the start of a line and continues on the lines below it. After a blank line only an indented line continues the rule. The position of a rule in its list is the rule number that `done` records, whatever number the file shows. Text between a heading and its list is printed above that category's rules. Every list item in a section is a rule, so a list in that text must be indented; a second list in a section is an error. Only `## ` headings start sections, so a prompt can contain `#` and `###` headings. The front matter is optional. A byte order mark at the start of the file is ignored.
 
-unclop refuses to load a configuration with an unknown, repeated or missing section, a section without rules, or unindented text below a section's rules. The error names the line.
+unclop refuses to load a configuration with an unknown, repeated or missing section, a section without rules, a second list in a section or unindented text below a section's rules. The error names the line. A YAML configuration needs at least one rule for each category.
 
 Configurations written by earlier versions are YAML. unclop reads `config.yaml` when `config.md` does not exist and reads a `--config` path that does not end in `.md` as YAML. The YAML format has no per-category prompts.
 

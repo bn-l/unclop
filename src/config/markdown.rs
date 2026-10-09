@@ -26,6 +26,8 @@ struct Section {
     intro: Vec<String>,
     /// Line number and text of each rule.
     rules: Vec<(usize, String)>,
+    /// The marker of the last rule.
+    marker: Option<Marker>,
 }
 
 fn heading(c: Category) -> &'static str {
@@ -36,15 +38,51 @@ fn heading(c: Category) -> &'static str {
     }
 }
 
-/// The text after a list marker (`- `, `* `, `+ `, `1. ` or `1) `) at the start of a line.
-fn item_text(line: &str) -> Option<&str> {
+/// How a list item is marked: the bullet character, or the number and the
+/// character after it.
+#[derive(Clone, Copy, PartialEq)]
+enum Marker {
+    Bullet(char),
+    Number(u32, char),
+}
+
+impl Marker {
+    /// Whether an item marked `next` continues the list this item is in. Markdown
+    /// starts a new list when the marker character changes; a number lower than
+    /// the one before means a second numbered list.
+    fn continues(self, next: Marker) -> bool {
+        match (self, next) {
+            (Marker::Bullet(a), Marker::Bullet(b)) => a == b,
+            (Marker::Number(n, a), Marker::Number(m, b)) => a == b && m >= n,
+            _ => false,
+        }
+    }
+}
+
+/// The marker and the text after it, for a list item (`- `, `* `, `+ `, `1. ` or
+/// `1) `) at the start of a line.
+fn list_item(line: &str) -> Option<(Marker, &str)> {
     let digits = line.bytes().take_while(u8::is_ascii_digit).count();
-    let rest = if digits > 0 {
-        line[digits..].strip_prefix(['.', ')'])?
+    let (marker, rest) = if digits > 0 {
+        let number = line[..digits].parse().ok()?;
+        let delimiter = line[digits..]
+            .chars()
+            .next()
+            .filter(|c| matches!(c, '.' | ')'))?;
+        (Marker::Number(number, delimiter), &line[digits + 1..])
     } else {
-        line.strip_prefix(['-', '*', '+'])?
+        let bullet = line
+            .chars()
+            .next()
+            .filter(|c| matches!(c, '-' | '*' | '+'))?;
+        (Marker::Bullet(bullet), &line[1..])
     };
-    (rest.is_empty() || rest.starts_with([' ', '\t'])).then_some(rest)
+    (rest.is_empty() || rest.starts_with([' ', '\t'])).then_some((marker, rest))
+}
+
+#[cfg(test)]
+fn item_text(line: &str) -> Option<&str> {
+    list_item(line).map(|(_, text)| text)
 }
 
 /// The YAML between a first line of `---` and the next `---` line, and the index
@@ -94,6 +132,7 @@ pub(super) fn parse(text: &str) -> Result<ConfigFile> {
                 line: n,
                 intro: Vec::new(),
                 rules: Vec::new(),
+                marker: None,
             });
             in_rule = false;
             continue;
@@ -109,7 +148,14 @@ pub(super) fn parse(text: &str) -> Result<ConfigFile> {
             in_rule = false;
             continue;
         }
-        if let Some(start) = item_text(line) {
+        if let Some((marker, start)) = list_item(line) {
+            if section.marker.is_some_and(|m| !m.continues(marker)) {
+                bail!(
+                    "line {n}: a second list starts here. Every list item in a section is a \
+                     rule, so indent a list that belongs to the section's prompt."
+                );
+            }
+            section.marker = Some(marker);
             section.rules.push((n, start.trim().to_string()));
             in_rule = true;
             continue;
@@ -287,6 +333,34 @@ after it.
             ))
             .contains("front matter")
         );
+    }
+
+    #[test]
+    fn a_list_in_a_section_prompt_must_be_indented() {
+        let doc = "## Identifiers\n- a\n## Comments\nSteps:\n1. Read it.\n2. Rewrite it.\n\n\
+                   1. No aphorism.\n2. No coinage.\n## Strings\n- c\n";
+        assert!(
+            error(doc).contains("line 8: a second list starts here"),
+            "{}",
+            error(doc)
+        );
+        let bullets = doc
+            .replace("1. Read", "- Read")
+            .replace("2. Rewrite", "- Rewrite");
+        assert!(error(&bullets).contains("line 8: a second list starts here"));
+
+        let indented = doc
+            .replace("1. Read", "   1. Read")
+            .replace("2. Rewrite", "   2. Rewrite");
+        let f = parse(&indented).unwrap();
+        assert_eq!(f.rules.comment, ["No aphorism.", "No coinage."]);
+        assert!(f.prompts[&Category::Comment].contains("1. Read it."));
+    }
+
+    #[test]
+    fn one_list_may_repeat_or_skip_numbers() {
+        let doc = "## Identifiers\n1. a\n1. b\n\n3. c\n## Comments\n- b\n## Strings\n- c\n";
+        assert_eq!(parse(doc).unwrap().rules.identifier, ["a", "b", "c"]);
     }
 
     #[test]

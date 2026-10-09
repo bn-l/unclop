@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use etcetera::BaseStrategy;
 use etcetera::base_strategy::Xdg;
 use serde::{Deserialize, Serialize};
@@ -147,12 +147,21 @@ pub fn load(root: &Path, override_path: Option<&Path>) -> Result<Config> {
             path.display()
         )
     })?;
+    // Some Windows editors start a file with a byte order mark; it would hide the
+    // front matter's opening line.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let file = if is_markdown(&path) {
-        markdown::parse(&text)
+        markdown::parse(text)
     } else {
-        serde_saphyr::from_str::<ConfigFile>(&text).map_err(anyhow::Error::from)
+        serde_saphyr::from_str::<ConfigFile>(text).map_err(anyhow::Error::from)
     }
     .with_context(|| format!("parsing {}", path.display()))?;
+    // An item whose category has no rules could never be marked done.
+    for category in Category::ALL {
+        if file.rules.for_category(category).is_empty() {
+            bail!("{} has no rules for {}", path.display(), category.label());
+        }
+    }
 
     let project_path = root.join(PROJECT_FILE);
     let project: ProjectFile = if project_path.exists() {
@@ -295,6 +304,30 @@ mod tests {
         assert!(is_markdown(Path::new("a/config.MD")));
         assert!(!is_markdown(Path::new("a/config.yaml")));
         assert!(!is_markdown(Path::new("a/config")));
+    }
+
+    fn load_text(name: &str, text: &str) -> Result<Config> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        fs::write(&path, text).unwrap();
+        load(dir.path(), Some(&path))
+    }
+
+    #[test]
+    fn a_byte_order_mark_is_ignored() {
+        let md = "\u{feff}---\nchunk_size: 7\n---\nP\n## Identifiers\n- a\n## Comments\n- b\n## Strings\n- c\n";
+        let c = load_text("config.md", md).unwrap();
+        assert_eq!(c.chunk_size, 7);
+        assert_eq!(c.prompt, "P");
+        let yaml = "\u{feff}prompt: P\nrules:\n  comment: [b]\n  identifier: [a]\n  string: [c]\nchunk_size: 7\n";
+        assert_eq!(load_text("config.yaml", yaml).unwrap().chunk_size, 7);
+    }
+
+    #[test]
+    fn every_category_needs_a_rule() {
+        let yaml = "prompt: P\nrules:\n  comment: [b]\n  identifier: [a]\n";
+        let err = format!("{:#}", load_text("config.yaml", yaml).unwrap_err());
+        assert!(err.contains("no rules for strings"), "{err}");
     }
 
     #[test]

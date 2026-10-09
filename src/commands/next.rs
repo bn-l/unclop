@@ -94,7 +94,7 @@ pub fn run(
                 unfinished.len(),
                 chunk.keys.len()
             )];
-            lines.extend(unfinished.iter().map(item_line));
+            lines.extend(unfinished.iter().map(|i| item_line(i, i.shown_id())));
             lines.push(String::new());
             lines.push(
                     "Mark them with `unclop done <id>:<rules>` or `unclop skip <id>` before asking for a new chunk."

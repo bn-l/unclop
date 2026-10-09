@@ -1,10 +1,12 @@
 //! Carries state from the previous scan onto the new one.
 //!
-//! Per file, the old and new id sequences are diffed. Equal runs keep their
-//! state. Inside a replace hunk, old and new items are paired positionally while
-//! their kinds match and the state carries across the rewrite. Items left over on
-//! the old side are matched against leftover new items in other files by id
-//! (moves). Anything still unmatched on the old side is gone from source.
+//! Per file, the old and new id sequences are diffed without the `~n` ordinal,
+//! because renaming one of two identical items renumbers the other. Equal runs
+//! keep their state. Inside a replace hunk, old and new items are paired
+//! positionally while their kinds match and the state carries across the rewrite.
+//! Items left over on the old side are matched against leftover new items in
+//! other files by id without the ordinal (moves). Anything still unmatched on the
+//! old side is gone from source.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -45,8 +47,8 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
 
         let old = std::mem::take(&mut entry.items);
         let new = file.items;
-        let old_ids: Vec<&str> = old.iter().map(|i| i.id.as_str()).collect();
-        let new_ids: Vec<&str> = new.iter().map(|i| i.id.as_str()).collect();
+        let old_ids: Vec<&str> = old.iter().map(|i| content_id(&i.id)).collect();
+        let new_ids: Vec<&str> = new.iter().map(|i| content_id(&i.id)).collect();
         let ops = capture_diff_slices(Algorithm::Myers, &old_ids, &new_ids);
 
         let mut merged: Vec<Option<Item>> = (0..new.len()).map(|_| None).collect();
@@ -59,9 +61,12 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
                     len,
                 } => {
                     for k in 0..len {
-                        merged[new_index + k] =
-                            Some(carry(&old[old_index + k], &new[new_index + k], false));
+                        let (o, n) = (&old[old_index + k], &new[new_index + k]);
+                        merged[new_index + k] = Some(carry(o, n, false));
                         taken[old_index + k] = true;
+                        if o.id != n.id {
+                            renames.insert(o.key(), n.key());
+                        }
                     }
                 }
                 DiffOp::Replace {
@@ -110,17 +115,20 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
     // Moves: an orphan whose id shows up once among fresh items in another file.
     let mut orphans_by_id: HashMap<String, Vec<Item>> = HashMap::new();
     for o in orphans {
-        orphans_by_id.entry(o.id.clone()).or_default().push(o);
+        orphans_by_id
+            .entry(content_id(&o.id).to_string())
+            .or_default()
+            .push(o);
     }
     let mut fresh_count: HashMap<&str, usize> = HashMap::new();
     for (_, id) in &fresh {
-        *fresh_count.entry(id.as_str()).or_default() += 1;
+        *fresh_count.entry(content_id(id)).or_default() += 1;
     }
     for (path, id) in &fresh {
-        if fresh_count.get(id.as_str()) != Some(&1) {
+        if fresh_count.get(content_id(id)) != Some(&1) {
             continue;
         }
-        let Some(candidates) = orphans_by_id.get_mut(id) else {
+        let Some(candidates) = orphans_by_id.get_mut(content_id(id)) else {
             continue;
         };
         if candidates.len() != 1 {
@@ -157,19 +165,27 @@ pub fn reconcile(state: &mut State, scanned: BTreeMap<String, Scanned>, rules: &
     }
 }
 
+/// An id without its `~n` ordinal: the hash of the item's content.
+fn content_id(id: &str) -> &str {
+    id.split_once('~').map_or(id, |(hash, _)| hash)
+}
+
 fn carry(old: &Item, new: &Item, changed: bool) -> Item {
     let mut item = new.clone();
     item.status = old.status;
     item.ticks = old.ticks.clone();
     item.was = old.was.clone();
     item.changed_after_done = old.changed_after_done;
-    item.alias = old.alias.clone();
+    // The id the agent was shown keeps working after the id changes, whether by an
+    // edit or by a renumbered ordinal, until a chunk shows the new id.
+    item.alias = old
+        .alias
+        .clone()
+        .or_else(|| (old.id != new.id).then(|| old.id.clone()))
+        .filter(|alias| *alias != item.id);
     if changed {
         if item.was.is_none() {
             item.was = Some(old.text.clone());
-        }
-        if item.alias.is_none() {
-            item.alias = Some(old.id.clone());
         }
         if old.status == Status::Done {
             item.changed_after_done = true;
@@ -425,6 +441,117 @@ mod tests {
         assert_eq!(items[0].status, Status::Pending);
         assert_eq!(items[1].status, Status::Done);
         assert_eq!(items[1].line, [9, 9]);
+    }
+
+    const X: &str = "xxxxxxxxxx";
+    const X2: &str = "xxxxxxxxxx~2";
+    const Y: &str = "yyyyyyyyyy";
+
+    /// Two `processed_result` declarations in a.rs with `between` in the middle.
+    /// The first is pending, the second done. The agent renames the first to
+    /// `result`, which shifts the second's id from x~2 to x.
+    fn rename_first_of_two(between: &[(&str, &str)]) -> State {
+        let mid = |path: &str| -> Vec<Item> {
+            between
+                .iter()
+                .map(|(id, text)| item(path, id, Kind::Var, text, 2))
+                .collect()
+        };
+        let mut state = State::default();
+        let mut old = vec![item("a.rs", X, Kind::Var, "processed_result", 1)];
+        old.extend(mid("a.rs"));
+        old.push(done(item("a.rs", X2, Kind::Var, "processed_result", 3)));
+        state.entry_mut("a.rs").items = old;
+        state.chunks.insert(
+            "1/1".into(),
+            Chunk {
+                worker: "1/1".into(),
+                keys: vec![format!("a.rs#{X}"), format!("a.rs#{X2}")],
+                issued: 0,
+                snapshot: [
+                    (format!("a.rs#{X}"), "processed_result".to_string()),
+                    (format!("a.rs#{X2}"), "processed_result".to_string()),
+                ]
+                .into(),
+                only: None,
+            },
+        );
+        let mut new = vec![item("a.rs", Y, Kind::Var, "result", 1)];
+        new.extend(mid("a.rs"));
+        new.push(item("a.rs", X, Kind::Var, "processed_result", 3));
+        reconcile(
+            &mut state,
+            [("a.rs".to_string(), parsed(new))].into(),
+            &rules(),
+        );
+        state
+    }
+
+    #[test]
+    fn renaming_one_of_two_close_duplicates_keeps_both_states() {
+        let state = rename_first_of_two(&[("bbbbbbbbbb", "two")]);
+        let items = &state.files["a.rs"].items;
+
+        let renamed = &items[0];
+        assert_eq!(renamed.id, Y);
+        assert_eq!(renamed.status, Status::Pending);
+        assert_eq!(renamed.was.as_deref(), Some("processed_result"));
+        assert_eq!(renamed.alias.as_deref(), Some(X));
+
+        let untouched = &items[2];
+        assert_eq!(untouched.id, X);
+        assert_eq!(untouched.status, Status::Done);
+        assert_eq!(untouched.was, None);
+        assert!(!untouched.changed_after_done);
+
+        let chunk = &state.chunks["1/1"];
+        assert_eq!(chunk.keys, [format!("a.rs#{Y}"), format!("a.rs#{X}")]);
+        assert_eq!(chunk.snapshot.len(), 2);
+
+        // The ids the chunk printed still reach the items they were printed for.
+        assert_eq!(state.resolve(X).unwrap().1, Y);
+        assert_eq!(state.resolve(X2).unwrap().1, X);
+        assert_eq!(state.resolve(Y).unwrap().1, Y);
+    }
+
+    #[test]
+    fn renaming_one_of_two_far_duplicates_leaves_the_other_unchanged() {
+        let state = rename_first_of_two(&[
+            ("bbbbbbbbbb", "two"),
+            ("cccccccccc", "alpha"),
+            ("dddddddddd", "beta"),
+            ("eeeeeeeeee", "gamma"),
+        ]);
+        let untouched = state.files["a.rs"].items.last().unwrap();
+        assert_eq!(untouched.id, X);
+        assert_eq!(untouched.status, Status::Done);
+        assert_eq!(untouched.was, None);
+        assert!(!untouched.changed_after_done);
+    }
+
+    #[test]
+    fn moving_the_second_duplicate_keeps_its_state() {
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![
+            item("a.rs", X, Kind::Var, "processed_result", 1),
+            done(item("a.rs", X2, Kind::Var, "processed_result", 2)),
+        ];
+        let scanned = [
+            (
+                "a.rs".to_string(),
+                parsed(vec![item("a.rs", X, Kind::Var, "processed_result", 1)]),
+            ),
+            (
+                "b.rs".to_string(),
+                parsed(vec![item("b.rs", X, Kind::Var, "processed_result", 1)]),
+            ),
+        ]
+        .into();
+        reconcile(&mut state, scanned, &rules());
+        assert_eq!(state.files["a.rs"].items[0].status, Status::Pending);
+        let moved = &state.files["b.rs"].items[0];
+        assert_eq!(moved.status, Status::Done);
+        assert_eq!(moved.alias.as_deref(), Some(X2));
     }
 
     #[test]

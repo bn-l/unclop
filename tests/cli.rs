@@ -514,6 +514,74 @@ fn init_writes_a_markdown_config() {
         .stdout(predicate::str::contains("1. IDENTIFIER RULE PLACEHOLDER 1"));
 }
 
+const TWINS: &str = "fn one() { let running_total = 1; }
+fn two() { let running_total = 2; }
+";
+
+const TWINS_EDITED: &str = "fn one() { let total = 1; }
+fn two() { let running_total = 2; }
+";
+
+#[test]
+fn renaming_one_of_two_same_names() {
+    let p = setup();
+    let twins = p.dir.path().join("src/twins.rs");
+    fs::write(&twins, TWINS).unwrap();
+    unclop(&p).arg("init").assert().success();
+    let chunk = json(&p, &["next", "--__JSON__"]);
+    let ids: Vec<String> = items(&chunk)
+        .iter()
+        .filter(|i| i["path"] == "src/twins.rs" && i["kind"] == "var")
+        .map(|i| i["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[1], format!("{}~2", ids[0]));
+
+    fs::write(&twins, TWINS_EDITED).unwrap();
+
+    // The unfinished list shows each item under the id the chunk printed for it.
+    unclop(&p)
+        .arg("next")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains(format!(
+            "  {:<13} var      L1        total  in fn one",
+            ids[0]
+        )))
+        .stdout(predicate::str::contains(format!(
+            "  {:<13} var      L2        running_total  in fn two",
+            ids[1]
+        )));
+
+    unclop(&p)
+        .args(["done", &format!("{}:1,2,3", ids[0])])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(": done"));
+    unclop(&p)
+        .args(["done", &format!("{}:1,2,3", ids[1]), "--keep"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(": done"))
+        .stdout(predicate::str::contains("gone from source").not());
+
+    let report = json(&p, &["report", "--__JSON__"]);
+    let twins_report: Vec<&Value> = report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["path"] == "src/twins.rs")
+        .flat_map(|f| f["items"].as_array().unwrap().iter())
+        .filter(|i| i["kind"] == "var")
+        .collect();
+    assert_eq!(twins_report.len(), 2, "{twins_report:#?}");
+    assert_eq!(twins_report[0]["text"], "total");
+    assert_eq!(twins_report[0]["was"], "running_total");
+    assert_eq!(twins_report[1]["text"], "running_total");
+    assert_eq!(twins_report[1]["was"], Value::Null);
+    assert!(twins_report.iter().all(|i| i["status"] == "done"));
+}
+
 #[test]
 fn missing_config_points_at_init() {
     let p = setup();

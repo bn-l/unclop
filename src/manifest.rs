@@ -50,10 +50,11 @@ pub fn rules_arg(config: &Config, item: &Item) -> String {
     (1..=n).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
 }
 
-pub fn item_line(item: &Item) -> String {
+/// One item as a chunk lists it, under `id`.
+pub fn item_line(item: &Item, id: &str) -> String {
     let mut line = format!(
         "  {:<13} {:<8} {:<9} {}",
-        item.id,
+        id,
         item.kind.label(),
         line_span(item),
         display_text(item)
@@ -120,7 +121,8 @@ pub fn render_text(
             file.pending_in_file
         ));
         for item in &file.items {
-            out.push_str(&item_line(item));
+            // A new chunk shows current ids; `next` clears the aliases after rendering.
+            out.push_str(&item_line(item, &item.id));
             out.push('\n');
         }
         out.push('\n');

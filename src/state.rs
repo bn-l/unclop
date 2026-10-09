@@ -73,6 +73,12 @@ impl Item {
     pub fn is_pending(&self) -> bool {
         self.status == Status::Pending
     }
+
+    /// The id the agent was last shown for this item: the alias while the item's
+    /// id has changed since a chunk printed it, the id otherwise.
+    pub fn shown_id(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.id)
+    }
 }
 
 pub fn key_of(path: &str, id: &str) -> String {
@@ -227,6 +233,14 @@ impl State {
                 Some(_) => Ok((path.to_string(), id.to_string())),
                 None => bail!("no item {q}"),
             };
+        }
+        // Renaming one of two identical items gives the other the renamed one's old
+        // id, so the id each item was last shown under is tried first.
+        let shown: Vec<&Item> = self.all_items().filter(|i| i.shown_id() == q).collect();
+        match shown.len() {
+            1 => return Ok((shown[0].path.clone(), shown[0].id.clone())),
+            n if n > 1 => bail!("{q} matches {n} items; use path#id: {}", list_keys(&shown)),
+            _ => {}
         }
         let exact: Vec<&Item> = self
             .all_items()
@@ -406,6 +420,35 @@ mod tests {
             },
         );
         state
+    }
+
+    #[test]
+    fn printed_id_wins_over_a_reused_current_id_in_one_file() {
+        // After a rename the first copy is y and was printed as x; the second copy's
+        // id shifted from x~2 to x.
+        let with = |path: &str, id: &str, alias: Option<&str>| {
+            let mut i = item(path, id, Status::Pending);
+            i.alias = alias.map(String::from);
+            i
+        };
+        let mut state = State::default();
+        state.entry_mut("a.rs").items = vec![
+            with("a.rs", "yyyyyyyyyy", Some("xxxxxxxxxx")),
+            with("a.rs", "xxxxxxxxxx", Some("xxxxxxxxxx~2")),
+        ];
+        assert_eq!(state.resolve("xxxxxxxxxx").unwrap().1, "yyyyyyyyyy");
+        assert_eq!(state.resolve("xxxxxxxxxx~2").unwrap().1, "xxxxxxxxxx");
+        assert_eq!(state.resolve("yyyyyyyyyy").unwrap().1, "yyyyyyyyyy");
+
+        // Another file showing the same id keeps the query ambiguous.
+        state.entry_mut("b.rs").items = vec![with("b.rs", "xxxxxxxxxx", None)];
+        assert!(
+            state
+                .resolve("xxxxxxxxxx")
+                .unwrap_err()
+                .to_string()
+                .contains("matches 2 items")
+        );
     }
 
     #[test]

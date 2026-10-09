@@ -54,7 +54,12 @@ pub fn item_line(item: &Item) -> String {
     line
 }
 
-pub fn render_text(config: &Config, files: &[ChunkFile], total_pending: usize) -> String {
+pub fn render_text(
+    config: &Config,
+    files: &[ChunkFile],
+    total_pending: usize,
+    only: Option<Category>,
+) -> String {
     let count: usize = files.iter().map(|f| f.items.len()).sum();
     let mut out = String::new();
     out.push_str(&format!(
@@ -87,9 +92,13 @@ pub fn render_text(config: &Config, files: &[ChunkFile], total_pending: usize) -
     }
     out.push('\n');
 
+    let pending = match only {
+        Some(c) => format!("pending {}", c.label()),
+        None => "pending".to_string(),
+    };
     for file in files {
         out.push_str(&format!(
-            "## {}  ({} of {} pending in this file)\n\n",
+            "## {}  ({} of {} {pending} in this file)\n\n",
             file.path,
             file.items.len(),
             file.pending_in_file
@@ -134,7 +143,12 @@ pub fn item_json(config: &Config, item: &Item) -> Value {
     })
 }
 
-pub fn render_json(config: &Config, files: &[ChunkFile], total_pending: usize) -> Value {
+pub fn render_json(
+    config: &Config,
+    files: &[ChunkFile],
+    total_pending: usize,
+    only: Option<Category>,
+) -> Value {
     let files_json: Vec<Value> = files
         .iter()
         .map(|f| {
@@ -154,6 +168,7 @@ pub fn render_json(config: &Config, files: &[ChunkFile], total_pending: usize) -
             "string": config.rules.string,
         },
         "total_pending": total_pending,
+        "only": only,
         "files": files_json,
     })
 }

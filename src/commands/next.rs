@@ -6,6 +6,7 @@ use serde_json::json;
 use xxhash_rust::xxh3::xxh3_64;
 
 use super::{Ctx, Output};
+use crate::ids::Category;
 use crate::manifest::{self, ChunkFile, item_json, item_line};
 use crate::state::{Chunk, Item, State};
 
@@ -34,7 +35,13 @@ pub fn assigned(path: &str, worker: usize, workers: usize) -> bool {
     workers == 1 || (xxh3_64(path.as_bytes()) % workers as u64) as usize == worker - 1
 }
 
-pub fn run(ctx: &Ctx, state: &mut State, worker: Option<&str>, force: bool) -> Result<Output> {
+pub fn run(
+    ctx: &Ctx,
+    state: &mut State,
+    worker: Option<&str>,
+    only: Option<Category>,
+    force: bool,
+) -> Result<Output> {
     let (wi, wn) = parse_worker(worker)?;
     let wkey = format!("{wi}/{wn}");
 
@@ -76,7 +83,11 @@ pub fn run(ctx: &Ctx, state: &mut State, worker: Option<&str>, force: bool) -> R
         if entry.record.skipped || !assigned(path, wi, wn) {
             continue;
         }
-        let mut pending: Vec<&Item> = entry.items.iter().filter(|i| i.is_pending()).collect();
+        let mut pending: Vec<&Item> = entry
+            .items
+            .iter()
+            .filter(|i| i.is_pending() && only.is_none_or(|c| i.kind.category() == c))
+            .collect();
         if pending.is_empty() {
             continue;
         }
@@ -110,6 +121,24 @@ pub fn run(ctx: &Ctx, state: &mut State, worker: Option<&str>, force: bool) -> R
     if files.is_empty() {
         let lines = if total_pending == 0 {
             vec!["Nothing pending. Run: unclop report".to_string()]
+        } else if let Some(cat) = only {
+            let in_cat = state
+                .files
+                .values()
+                .flat_map(|e| &e.items)
+                .filter(|i| i.is_pending() && i.kind.category() == cat)
+                .count();
+            vec![if in_cat == 0 {
+                format!(
+                    "No {} pending. {total_pending} items remain in other categories.",
+                    cat.label()
+                )
+            } else {
+                format!(
+                    "No {} pending for worker {wkey}. {in_cat} remain for other workers.",
+                    cat.label()
+                )
+            }]
         } else {
             vec![format!(
                 "Nothing pending for worker {wkey}. {total_pending} items remain for other workers."
@@ -118,7 +147,7 @@ pub fn run(ctx: &Ctx, state: &mut State, worker: Option<&str>, force: bool) -> R
         state.chunks.remove(&wkey);
         return Ok(Output {
             lines,
-            json: Some(json!({ "files": [], "total_pending": total_pending })),
+            json: Some(json!({ "files": [], "total_pending": total_pending, "only": only })),
             code: 0,
         });
     }
@@ -131,8 +160,8 @@ pub fn run(ctx: &Ctx, state: &mut State, worker: Option<&str>, force: bool) -> R
         .iter()
         .flat_map(|f| f.items.iter().map(|i| (i.key(), i.text.clone())))
         .collect();
-    let text = manifest::render_text(&ctx.config, &files, total_pending);
-    let json = manifest::render_json(&ctx.config, &files, total_pending);
+    let text = manifest::render_text(&ctx.config, &files, total_pending, only);
+    let json = manifest::render_json(&ctx.config, &files, total_pending, only);
     drop(files);
 
     let now = SystemTime::now()

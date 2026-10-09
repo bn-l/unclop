@@ -24,6 +24,16 @@ impl Category {
             Category::String => "strings",
         }
     }
+
+    /// Accepts the singular config key or the plural label.
+    pub fn parse(s: &str) -> Option<Category> {
+        Some(match s {
+            "identifier" | "identifiers" => Category::Identifier,
+            "comment" | "comments" => Category::Comment,
+            "string" | "strings" => Category::String,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

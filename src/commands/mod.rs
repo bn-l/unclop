@@ -63,9 +63,12 @@ pub fn dispatch(cli: Cli) -> Result<i32> {
                 let mut st = sf.load()?;
                 refresh(&ctx, &mut st)?;
                 let out = match cmd {
-                    Cmd::Next { worker, force, .. } => {
-                        next::run(&ctx, &mut st, worker.as_deref(), force)?
-                    }
+                    Cmd::Next {
+                        worker,
+                        only,
+                        force,
+                        ..
+                    } => next::run(&ctx, &mut st, worker.as_deref(), only, force)?,
                     Cmd::Done { items, keep } => done::run(&ctx, &mut st, &items, keep)?,
                     Cmd::Skip { ids, files } => skip::run(&ctx, &mut st, &ids, &files)?,
                     Cmd::Reopen {

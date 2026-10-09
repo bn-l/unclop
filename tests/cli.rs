@@ -306,6 +306,51 @@ fn reopen_changed_after_done() {
 }
 
 #[test]
+fn only_takes_one_category() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+
+    unclop(&p)
+        .args(["next", "--only", "identifier"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Rules for identifiers:"))
+        .stdout(predicate::str::contains("Rules for comments:").not())
+        .stdout(predicate::str::contains("pending identifiers in this file"));
+
+    let chunk = json(&p, &["next", "--only", "identifiers", "--force", "--json"]);
+    assert_eq!(chunk["only"], "identifier");
+    let idents = items(&chunk);
+    assert!(!idents.is_empty());
+    assert!(idents.iter().all(|i| i["category"] == "identifiers"));
+
+    let mut skip = unclop(&p);
+    skip.arg("skip");
+    for i in &idents {
+        skip.arg(i["id"].as_str().unwrap());
+    }
+    skip.assert().success();
+
+    unclop(&p)
+        .args(["next", "--only", "identifier"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No identifiers pending."))
+        .stdout(predicate::str::contains("remain in other categories"));
+
+    let chunk = json(&p, &["next", "--only", "comment", "--json"]);
+    let comments = items(&chunk);
+    assert!(!comments.is_empty());
+    assert!(comments.iter().all(|i| i["category"] == "comments"));
+
+    unclop(&p)
+        .args(["next", "--only", "names"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("identifier, comment or string"));
+}
+
+#[test]
 fn missing_config_points_at_init() {
     let p = setup();
     fs::remove_file(&p.config).unwrap();

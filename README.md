@@ -130,7 +130,7 @@ When no items are pending `next` prints a message that points at `report`. `repo
 | Command | Operation |
 |---|---|
 | `unclop init` | Writes the default configuration when it is absent. Scans the repository and prints counts per category. |
-| `unclop next [--worker I/N] [--force] [--json]` | Prints the next chunk. Exits 2 while the previous chunk of this worker has unresolved items. |
+| `unclop next [--worker I/N] [--only <category>] [--force] [--json]` | Prints the next chunk. `--only` takes items of one category: `identifier`, `comment` or `string`. Exits 2 while the previous chunk of this worker has unresolved items. |
 | `unclop done <id>:<rules>... [--keep]` | Marks items done and records the rule numbers that were verified. |
 | `unclop skip <id>...` / `unclop skip --file <path>...` | Marks items or whole files as skipped. A skipped file keeps its record and its contents are not parsed until `reopen --file` clears the flag. |
 | `unclop reopen <id>...` / `--changed` / `--file <path>...` | Returns items to pending and clears their rule ticks. `--changed` reopens every item whose text changed after it was marked done. `--file` clears the skipped flag of a file. |
@@ -153,7 +153,7 @@ Item ids are ten hexadecimal characters. Any unique prefix of six or more charac
 
 5. **Store.** The state file is `.unclop.jsonl` in the project root. Commit it with the code. A command holds an exclusive lock on the state file for its entire run. A save writes the new content to the journal file `.unclop.jsonl.tmp` and then rewrites the state file in place. A load that finds an empty or damaged state file next to a journal recovers from the journal. A file with unchanged mtime and size is not parsed again.
 
-6. **Build a chunk.** `next` adds whole files to a chunk until the chunk size is reached. The default chunk size is 25 items. Within a file the order is identifiers then comments then strings. The chunk record stores the normalized text of each item at issue time. `done` uses this snapshot for the unchanged check.
+6. **Build a chunk.** `next` adds whole files to a chunk until the chunk size is reached. The default chunk size is 25 items. Within a file the order is identifiers then comments then strings. `next --only <category>` restricts the chunk to one category. A run that repeats `next --only identifier` until no identifier is pending and then switches to `--only comment` reviews every identifier in the codebase before the first comment. The chunk record stores the normalized text of each item at issue time. `done` uses this snapshot for the unchanged check.
 
 The design decisions and the rationale are recorded in `PLAN.md`.
 

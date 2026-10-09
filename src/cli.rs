@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use crate::ids::Category;
+
 const WIDTH: usize = 88;
 
 const ABOUT: &str = "Lists every comment, identifier and string literal in a codebase and tracks the review of each one";
@@ -82,6 +84,11 @@ push the chunk past chunk_size. A single file with more pending items than chunk
 is split and continues in the next chunk. Within a file the order is identifiers, then \
 comments, then strings, each in source order.
 
+--only limits the chunk to one category. Running `next --only identifier` until no \
+identifier is pending and then `next --only comment` reviews every identifier in the \
+codebase before the first comment, so comments are rewritten against the final names. \
+When the category has no pending item the command says so and exits with code 0.
+
 The command exits with code 2 and lists the unresolved items when items from this \
 worker's previous chunk are still pending. Mark them with `done` or `skip`, or pass \
 --force to receive a new chunk anyway.
@@ -133,6 +140,7 @@ const CONFIG_HELP: &str = "Read this config file instead of $XDG_CONFIG_HOME/unc
 UNCLOP_CONFIG environment variable does the same.";
 const WORKER_HELP: &str = "Take only the files assigned to worker I of N, for example 2/4. Files are \
 assigned by a hash of their path so N agents running 1/N through N/N cover every file once.";
+const ONLY_HELP: &str = "Take only items of this category: identifier, comment or string.";
 const FORCE_HELP: &str = "Print a new chunk even when the previous chunk has unresolved items.";
 const NEXT_JSON_HELP: &str = "Print the chunk as JSON. The object holds the prompt, the rules, the files \
 with their items and the exit code.";
@@ -150,6 +158,10 @@ const STATUS_JSON_HELP: &str = "Print the counts as JSON.";
 const REPORT_JSON_HELP: &str = "Print the report as JSON.";
 
 const TEMPLATE: &str = "{about}\n\n{usage-heading} {usage}{after-help}";
+
+fn parse_category(s: &str) -> Result<Category, String> {
+    Category::parse(s).ok_or_else(|| "expected identifier, comment or string".to_string())
+}
 
 /// Re-wraps paragraphs of `text` to `WIDTH` with `indent` leading spaces on every line.
 fn wrap(text: &str, indent: usize) -> String {
@@ -226,10 +238,11 @@ pub fn main_help() -> String {
     command(&mut s, &["unclop init"], INIT_LONG, &[]);
     command(
         &mut s,
-        &["unclop next [--worker I/N] [--force] [--json]"],
+        &["unclop next [--worker I/N] [--only <CATEGORY>] [--force] [--json]"],
         NEXT_LONG,
         &[
             ("--worker I/N", WORKER_HELP),
+            ("--only <CATEGORY>", ONLY_HELP),
             ("--force", FORCE_HELP),
             ("--json", NEXT_JSON_HELP),
         ],
@@ -326,6 +339,8 @@ pub enum Cmd {
     Next {
         #[arg(long, value_name = "I/N", help = WORKER_HELP)]
         worker: Option<String>,
+        #[arg(long, value_name = "CATEGORY", value_parser = parse_category, help = ONLY_HELP)]
+        only: Option<Category>,
         #[arg(long, help = FORCE_HELP)]
         force: bool,
         #[arg(long, help = NEXT_JSON_HELP)]
@@ -395,6 +410,7 @@ mod tests {
         }
         for flag in [
             "--worker",
+            "--only",
             "--force",
             "--keep",
             "--changed",

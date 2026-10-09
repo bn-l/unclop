@@ -4,7 +4,7 @@ use tree_sitter::{Node, Tree};
 
 use super::lang::{Lang, LangId};
 use super::{RawItem, end_row, only_whitespace_before, scope_of, text, walk_nodes};
-use crate::ids::{Kind, is_noise_comment, normalize_comment, strip_quotes};
+use crate::ids::{Kind, is_noise_comment, is_pragma, normalize_comment, strip_quotes};
 
 struct Group<'t> {
     first: Node<'t>,
@@ -14,6 +14,7 @@ struct Group<'t> {
     column: usize,
     doc: bool,
     docstring: bool,
+    pragma: bool,
 }
 
 pub fn extract(lang: &Lang, tree: &Tree, src: &str, out: &mut Vec<RawItem>) {
@@ -32,11 +33,16 @@ pub fn extract(lang: &Lang, tree: &Tree, src: &str, out: &mut Vec<RawItem>) {
         let line_style = !docstring && is_line_style(lang.id, node, src);
         let doc = docstring || has_doc_marker(lang.id, node, src);
         let column = node.start_position().column;
+        // A pragma line stands alone: merged into the prose next to it, it would be
+        // rewritten along with the prose, or hide that prose as noise.
+        let pragma = line_style && is_pragma(&normalize_comment(text(node, src)));
         if let Some(g) = groups.last_mut() {
             let adjacent = line_style
                 && g.line_style
                 && starts_line
                 && g.starts_line
+                && !pragma
+                && !g.pragma
                 && g.column == column
                 && node.start_position().row == end_row(g.last, src) + 1
                 && doc == g.doc;
@@ -53,6 +59,7 @@ pub fn extract(lang: &Lang, tree: &Tree, src: &str, out: &mut Vec<RawItem>) {
             column,
             doc,
             docstring,
+            pragma,
         });
     }
 

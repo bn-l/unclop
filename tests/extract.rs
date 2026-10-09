@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use unclop::config::Config;
+use unclop::ids::Category;
 use unclop::scan::{extract, lang::Registry};
 
 fn rows(fixture: &str) -> String {
@@ -88,4 +89,42 @@ fn ids_are_stable_across_runs() {
     let a = rows("rust/sample.rs");
     let b = rows("rust/sample.rs");
     assert_eq!(a, b);
+}
+
+fn comment_texts(path: &str, src: &str) -> Vec<String> {
+    let registry = Registry::new().expect("queries compile");
+    let lang = registry.for_path(Path::new(path)).expect("grammar");
+    extract(lang, path, src, &Config::default())
+        .expect("extract")
+        .into_iter()
+        .filter(|i| i.kind.category() == Category::Comment)
+        .map(|i| i.text)
+        .collect()
+}
+
+#[test]
+fn pragmas_stay_out_of_prose_comments() {
+    let ts = "function f(x) {
+  // The library types are wrong here
+  // @ts-expect-error
+  g(x);
+  // @ts-expect-error
+  // The types are wrong again here
+  h(x);
+}
+";
+    assert_eq!(
+        comment_texts("a.ts", ts),
+        [
+            "The library types are wrong here",
+            "The types are wrong again here"
+        ]
+    );
+    let py = "def f():
+    # pylint: disable=invalid-name
+    # Explain why the name is short
+    x = 1
+    return x
+";
+    assert_eq!(comment_texts("a.py", py), ["Explain why the name is short"]);
 }

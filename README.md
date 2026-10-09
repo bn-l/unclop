@@ -41,7 +41,7 @@ The prompt for unslopping is in the config file at `~/.config/unclop/config.md`.
 
 ## Extracted items
 
-The comment extractor collects line comments and block comments. Adjacent line comments at the same column merge into one item. The markers `///`, `//!`, `/**` and `/*!` classify a comment as documentation. Python docstrings are also documentation. The extractor drops pragmas such as `eslint-disable`, `noqa` and `nolint`, license and copyright headers, shebangs and comment lines that contain no letters.
+The comment extractor collects line comments and block comments. Adjacent line comments at the same column merge into one item, except that a pragma line never merges with the comments next to it. The markers `///`, `//!`, `/**` and `/*!` classify a comment as documentation. Python docstrings are also documentation. The extractor drops pragmas such as `eslint-disable`, `noqa` and `nolint`, license and copyright headers, shebangs and comment lines that contain no letters.
 
 The identifier extractor lists declaration sites only. The covered declarations are function and method names, type names, variants, fields, variables, constants, parameters, modules and macros. References and uses are not listed. Per-language exclusion lists skip Rust trait-impl methods, Python dunders with `self` and `cls`, C++ constructors and methods marked `override`, Ruby methods such as `initialize` and `inspect` and the name `_` in every language.
 

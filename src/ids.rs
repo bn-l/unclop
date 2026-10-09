@@ -223,6 +223,11 @@ static LICENSE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// A tool directive such as `eslint-disable` or `@ts-expect-error`.
+pub fn is_pragma(normalized: &str) -> bool {
+    PRAGMA.is_match(normalized)
+}
+
 /// Comments that are machinery rather than prose: pragmas, separators, license headers, shebangs.
 pub fn is_noise_comment(normalized: &str, raw: &str, first_row: usize) -> bool {
     if !normalized.chars().any(|c| c.is_alphabetic()) {
@@ -231,7 +236,7 @@ pub fn is_noise_comment(normalized: &str, raw: &str, first_row: usize) -> bool {
     if first_row == 0 && raw.trim_start().starts_with("#!") {
         return true;
     }
-    PRAGMA.is_match(normalized) || LICENSE.is_match(normalized)
+    is_pragma(normalized) || LICENSE.is_match(normalized)
 }
 
 static MACHINE: LazyLock<Regex> = LazyLock::new(|| {

@@ -31,9 +31,9 @@ The prompt for unslopping is in the config file at `~/.config/unclop/config.md`.
 
 - Items are identified by content hash. The review state follows an item across edits, renames and moves.
 
-- Each chunk repeats the prompt and the rules and contains the item ids and the exact `done` command.
+- Each chunk repeats the prompt, the fixed rules for using unclop and the category rules, and contains the item ids and the exact `done` command.
 
-- `next --worker I/N` partitions the files across workers so that each file belongs to one worker. `next`, `status` and `report` support JSON output.
+- `next --worker I/N` partitions the files across workers so that each file belongs to one worker.
 
 - The state file `.unclop.jsonl` is committed with the code. A command holds an exclusive lock on the state file and writes through a journal.
 
@@ -94,6 +94,11 @@ unclop · 3 items in this chunk · 47 pending overall
 
 Write comments, identifiers and strings in plain, direct English. ...
 
+Rules for using unclop. The user set these and they are not negotiable:
+  - Work in a loop: run `unclop next`, handle every item in the batch, ...
+  - Read each item in its source and decide its new name or text yourself, ...
+  - Use unclop only through the commands it prints. ...
+
 Rules for identifiers:
   1. no filler prefixes or suffixes (validated_, processed_, _result)
   2. ...
@@ -114,6 +119,8 @@ Mark each item when finished, listing every rule you checked:
   unclop done 77b1e0a2f1:1,2,3 a3f9c1d2e0:1,2,3 5e5e5e5e5e:1,2,3
 ```
 
+The rules for using unclop are built into the binary and printed after the prompt in every chunk, so editing or copying the configuration does not remove them. They tell the agent to work through the chunks in a loop, to decide each new name or text itself instead of with a script, and to leave the state file, the configuration, `--config` and `--force` alone. They also tell the agent not to create or edit `.unclop.yaml` unless the user asked for it, because that file can override `chunk_size`.
+
 After the agent edits the source it reports the finished items. Each argument names an item and the rules that were verified:
 
 ```sh
@@ -132,14 +139,14 @@ When no items are pending `next` prints a message that points at `report`. `repo
 | Command | Operation |
 |---|---|
 | `unclop init` | Writes the default configuration when it is absent. Scans the repository and prints counts per category. |
-| `unclop next [--worker I/N] [--only <category>] [--force] [--json]` | Prints the next chunk. `--only` takes items of one category: `identifier`, `comment` or `string`. Exits 2 while the previous chunk of this worker has unresolved items. |
+| `unclop next [--worker I/N] [--only <category>] [--force]` | Prints the next chunk. `--only` takes items of one category: `identifier`, `comment` or `string`. Exits 2 while the previous chunk of this worker has unresolved items. |
 | `unclop done <id>:<rules>... [--keep]` | Marks items done and records the rule numbers that were verified. |
 | `unclop skip <id>...` / `unclop skip --file <path>...` | Marks items or whole files as skipped. A skipped file keeps its record and its contents are not parsed until `reopen --file` clears the flag. |
 | `unclop reopen <id>...` / `--changed` / `--file <path>...` | Returns items to pending and clears their rule ticks. `--changed` reopens every item whose text changed after it was marked done. `--file` clears the skipped flag of a file. |
-| `unclop status [--json]` | Prints counts per file and per category. Exits 1 while any item is pending. |
-| `unclop report [--json]` | Prints the recorded before and after text for every done item. Lists the skipped items and files. |
+| `unclop status` | Prints counts per file and per category. Exits 1 while any item is pending. |
+| `unclop report` | Prints the recorded before and after text for every done item. Lists the skipped items and files. |
 
-`-C <dir>` runs against another directory. `--config <path>` selects another configuration file. The environment variable `UNCLOP_CONFIG` sets the configuration path.
+`-C <dir>` runs against another directory. `--config <path>` selects another configuration file. The environment variable `UNCLOP_CONFIG` sets the configuration path. `unclop --help` leaves out `--config` and `--force` because the agent reads the help.
 
 Item ids are ten hexadecimal characters. Any unique prefix of six or more characters resolves an id. When a prefix is ambiguous use the `path#id` form.
 

@@ -88,8 +88,9 @@ Run this once per project before the agent starts. The default config holds \
 placeholder text for the prompt and the rules. Edit both before the first `next`.";
 
 const NEXT_LONG: &str = "\
-Prints the prompt, the numbered rules for each category present in the chunk, the \
-pending items grouped by file and the exact `done` command for those items. Each item \
+Prints the prompt, the rules for using unclop, the numbered rules for each category \
+present in the chunk, the pending items grouped by file and the exact `done` command for \
+those items. Each item \
 line holds the id, the kind, the line span, the text and the enclosing declaration.
 
 A chunk holds whole files. Files are added in path order until the next file would \
@@ -107,8 +108,7 @@ The `then:` line at the end of `next`, `done` and `skip` repeats --worker, and r
 the worker has nothing pending.
 
 The command exits with code 2 and lists the unresolved items when items from this \
-worker's previous chunk are still pending. Mark them with `done` or `skip`, or pass \
---force to receive a new chunk anyway.
+worker's previous chunk are still pending. Mark them with `done` or `skip` first.
 
 When no item is pending the command prints a pointer to `report` and exits with \
 code 0.";
@@ -159,8 +159,6 @@ const WORKER_HELP: &str = "Take only the files assigned to worker I of N, for ex
 assigned by a hash of their path so N agents running 1/N through N/N cover every file once.";
 const ONLY_HELP: &str = "Take only items of this category: identifier, comment or string.";
 const FORCE_HELP: &str = "Print a new chunk even when the previous chunk has unresolved items.";
-const NEXT_JSON_HELP: &str = "Print the chunk as JSON. The object holds the prompt, the rules, the files \
-with their items and the exit code.";
 const ITEMS_HELP: &str =
     "An item id followed by a colon and the rule numbers checked, for example 77b1e0a2f1:1,2,3.";
 const KEEP_HELP: &str = "Accept items whose text has not changed since the chunk was issued. Use it when \
@@ -171,8 +169,6 @@ const SKIP_FILE_HELP: &str =
 const REOPEN_IDS_HELP: &str = "Item ids to return to pending.";
 const CHANGED_HELP: &str = "Return every done item whose text changed after it was marked done.";
 const REOPEN_FILE_HELP: &str = "Stop skipping this file.";
-const STATUS_JSON_HELP: &str = "Print the counts as JSON.";
-const REPORT_JSON_HELP: &str = "Print the report as JSON.";
 
 const TEMPLATE: &str = "{about}\n\n{usage-heading} {usage}{after-help}";
 
@@ -255,13 +251,11 @@ pub fn main_help() -> String {
     command(&mut s, &["unclop init"], INIT_LONG, &[]);
     command(
         &mut s,
-        &["unclop next [--worker I/N] [--only <CATEGORY>] [--force] [--json]"],
+        &["unclop next [--worker I/N] [--only <CATEGORY>]"],
         NEXT_LONG,
         &[
             ("--worker I/N", WORKER_HELP),
             ("--only <CATEGORY>", ONLY_HELP),
-            ("--force", FORCE_HELP),
-            ("--json", NEXT_JSON_HELP),
         ],
     );
     command(
@@ -290,22 +284,11 @@ pub fn main_help() -> String {
             ("--file <PATH>", REOPEN_FILE_HELP),
         ],
     );
-    command(
-        &mut s,
-        &["unclop status [--json]"],
-        STATUS_LONG,
-        &[("--json", STATUS_JSON_HELP)],
-    );
-    command(
-        &mut s,
-        &["unclop report [--json]"],
-        REPORT_LONG,
-        &[("--json", REPORT_JSON_HELP)],
-    );
+    command(&mut s, &["unclop status"], STATUS_LONG, &[]);
+    command(&mut s, &["unclop report"], REPORT_LONG, &[]);
 
     s.push_str("Global options:\n");
     option(&mut s, 2, "-C, --dir <DIR>", DIR_HELP);
-    option(&mut s, 2, "--config <PATH>", CONFIG_HELP);
     option(&mut s, 2, "-h, --help", "Print this help.");
     option(&mut s, 2, "-V, --version", "Print the version.");
     s.push('\n');
@@ -341,7 +324,9 @@ pub struct Cli {
     #[arg(short = 'C', long = "dir", global = true, value_name = "DIR", help = DIR_HELP)]
     pub dir: Option<PathBuf>,
 
-    #[arg(long, global = true, value_name = "PATH", help = CONFIG_HELP)]
+    // --config, --force and --__JSON__ are left out of the help so an agent reading it
+    // does not learn a way around the chunk size and the review loop. The tests use them.
+    #[arg(long, global = true, hide = true, value_name = "PATH", help = CONFIG_HELP)]
     pub config: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -361,9 +346,9 @@ pub enum Cmd {
         worker: Option<String>,
         #[arg(long, value_name = "CATEGORY", value_parser = parse_category, help = ONLY_HELP)]
         only: Option<Category>,
-        #[arg(long, help = FORCE_HELP)]
+        #[arg(long, hide = true, help = FORCE_HELP)]
         force: bool,
-        #[arg(long, help = NEXT_JSON_HELP)]
+        #[arg(long = "__JSON__", hide = true)]
         json: bool,
     },
 
@@ -399,14 +384,14 @@ pub enum Cmd {
     /// Print counts per file and per category. Exits with code 1 while anything is pending
     #[command(long_about = wrap(STATUS_LONG, 0))]
     Status {
-        #[arg(long, help = STATUS_JSON_HELP)]
+        #[arg(long = "__JSON__", hide = true)]
         json: bool,
     },
 
     /// Print the old and new text of every done item and list everything skipped
     #[command(long_about = wrap(REPORT_LONG, 0))]
     Report {
-        #[arg(long, help = REPORT_JSON_HELP)]
+        #[arg(long = "__JSON__", hide = true)]
         json: bool,
     },
 
@@ -431,15 +416,15 @@ mod tests {
         for flag in [
             "--worker",
             "--only",
-            "--force",
             "--keep",
             "--changed",
             "--file",
-            "--json",
             "--dir",
-            "--config",
         ] {
             assert!(help.contains(flag), "missing {flag}");
+        }
+        for hidden in ["--force", "--json", "JSON__", "--config", "UNCLOP_CONFIG"] {
+            assert!(!help.contains(hidden), "help names {hidden}");
         }
         assert!(help.contains("Exit codes:"));
         assert!(help.contains("Config file:"));

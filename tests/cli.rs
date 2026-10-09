@@ -135,7 +135,7 @@ fn full_loop() {
         .code(2)
         .stdout(predicate::str::contains("Unfinished from your last chunk"));
 
-    let chunk = json(&p, &["next", "--force", "--json"]);
+    let chunk = json(&p, &["next", "--force", "--__JSON__"]);
     assert_eq!(chunk["exit_code"], 0);
     let all = items(&chunk);
     let in_lib = |i: &Value| i["path"] == "src/lib.rs";
@@ -199,9 +199,9 @@ fn full_loop() {
         .stdout(predicate::str::contains("pending"));
 
     // Skip whatever is left, then everything is settled.
-    let status = json(&p, &["status", "--json"]);
+    let status = json(&p, &["status", "--__JSON__"]);
     assert!(status["pending"].as_u64().unwrap() > 0);
-    let remaining = json(&p, &["next", "--force", "--json"]);
+    let remaining = json(&p, &["next", "--force", "--__JSON__"]);
     let left: Vec<String> = items(&remaining)
         .iter()
         .map(|i| i["id"].as_str().unwrap().to_string())
@@ -235,7 +235,7 @@ fn full_loop() {
         .stdout(predicate::str::contains("src/gen.rs"));
 
     // The renamed variable is resolvable by the id it was issued under.
-    let report = json(&p, &["report", "--json"]);
+    let report = json(&p, &["report", "--__JSON__"]);
     let renamed = report["files"]
         .as_array()
         .unwrap()
@@ -251,8 +251,8 @@ fn full_loop() {
 fn workers_split_files() {
     let p = setup();
     unclop(&p).arg("init").assert().success();
-    let a = json(&p, &["next", "--worker", "1/2", "--json"]);
-    let b = json(&p, &["next", "--worker", "2/2", "--json"]);
+    let a = json(&p, &["next", "--worker", "1/2", "--__JSON__"]);
+    let b = json(&p, &["next", "--worker", "2/2", "--__JSON__"]);
     let files = |v: &Value| -> Vec<String> {
         v["files"]
             .as_array()
@@ -283,7 +283,7 @@ fn workers_split_files() {
 fn reopen_changed_after_done() {
     let p = setup();
     unclop(&p).arg("init").assert().success();
-    let chunk = json(&p, &["next", "--json"]);
+    let chunk = json(&p, &["next", "--__JSON__"]);
     let all = items(&chunk);
     let var_id = id_where(&all, |i| i["text"] == "processed_result");
     unclop(&p)
@@ -293,7 +293,7 @@ fn reopen_changed_after_done() {
 
     // A later edit to a done item keeps it done but flags it.
     fs::write(p.dir.path().join("src/lib.rs"), LIB_EDITED).unwrap();
-    let report = json(&p, &["report", "--json"]);
+    let report = json(&p, &["report", "--__JSON__"]);
     let item = report["files"]
         .as_array()
         .unwrap()
@@ -308,7 +308,7 @@ fn reopen_changed_after_done() {
         .assert()
         .success()
         .stdout(predicate::str::contains("1 items that changed"));
-    let status = json(&p, &["status", "--json"]);
+    let status = json(&p, &["status", "--__JSON__"]);
     assert_eq!(status["totals"]["done"], 0);
 }
 
@@ -325,7 +325,10 @@ fn only_takes_one_category() {
         .stdout(predicate::str::contains("Rules for comments:").not())
         .stdout(predicate::str::contains("pending identifiers in this file"));
 
-    let chunk = json(&p, &["next", "--only", "identifiers", "--force", "--json"]);
+    let chunk = json(
+        &p,
+        &["next", "--only", "identifiers", "--force", "--__JSON__"],
+    );
     assert_eq!(chunk["only"], "identifier");
     let idents = items(&chunk);
     assert!(!idents.is_empty());
@@ -345,7 +348,7 @@ fn only_takes_one_category() {
         .stdout(predicate::str::contains("No identifiers pending."))
         .stdout(predicate::str::contains("remain in other categories"));
 
-    let chunk = json(&p, &["next", "--only", "comment", "--json"]);
+    let chunk = json(&p, &["next", "--only", "comment", "--__JSON__"]);
     let comments = items(&chunk);
     assert!(!comments.is_empty());
     assert!(comments.iter().all(|i| i["category"] == "comments"));
@@ -362,7 +365,7 @@ fn then_line_keeps_the_flags() {
     let p = setup();
     unclop(&p).arg("init").assert().success();
 
-    let chunk = json(&p, &["next", "--only", "identifier", "--json"]);
+    let chunk = json(&p, &["next", "--only", "identifier", "--__JSON__"]);
     assert_eq!(chunk["then"], "unclop next --only identifier");
     let idents = items(&chunk);
     let (first, rest) = idents.split_first().unwrap();
@@ -390,6 +393,47 @@ fn then_line_keeps_the_flags() {
     skip.assert()
         .success()
         .stdout(predicate::str::ends_with("then: unclop next\n"));
+}
+
+#[test]
+fn agent_sees_the_rules_and_no_way_around_them() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+
+    unclop(&p)
+        .arg("next")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "PROMPT PLACEHOLDER\n\nRules for using unclop.",
+        ))
+        .stdout(predicate::str::contains("Never write or run a script"))
+        .stdout(predicate::str::contains(
+            "Do not create or edit .unclop.yaml in the project root",
+        ));
+
+    unclop(&p)
+        .arg("next")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("Unfinished from your last chunk"))
+        .stdout(predicate::str::contains("--force").not());
+
+    // clap suggests similar flags, hidden ones included, so --json must not lead to --__JSON__.
+    unclop(&p)
+        .args(["next", "--json"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("unexpected argument '--json'"))
+        .stderr(predicate::str::contains("JSON__").not());
+
+    for hidden in ["--force", "JSON__", "--config"] {
+        unclop(&p)
+            .args(["next", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(hidden).not());
+    }
 }
 
 const CONFIG_MD: &str = r#"---

@@ -97,7 +97,7 @@ pub fn run(
             lines.extend(unfinished.iter().map(item_line));
             lines.push(String::new());
             lines.push(
-                    "Mark them with `unclop done <id>:<rules>` or `unclop skip <id>`, or pass --force to move on."
+                    "Mark them with `unclop done <id>:<rules>` or `unclop skip <id>` before asking for a new chunk."
                         .to_string(),
                 );
             let json = json!({

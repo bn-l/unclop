@@ -14,6 +14,16 @@ pub struct ChunkFile<'a> {
 
 pub const PREVIEW_CHARS: usize = 100;
 
+/// Printed after the prompt in every chunk. It lives in the binary rather than the config
+/// so that an agent copying or editing the config cannot drop it. The items are bullets,
+/// not numbers, so they are not mistaken for the rule numbers `done` takes.
+pub const USAGE_RULES: &str = "\
+Rules for using unclop. The user set these and they are not negotiable:
+  - Work in a loop: run `unclop next`, handle every item in the batch, run the `unclop done` command printed at the end, then run the command on the `then:` line. Repeat until `unclop next` prints \"Nothing pending\".
+  - Read each item in its source and decide its new name or text yourself, one item at a time. Never write or run a script, regex or name mapping that decides names or text for many items at once. You may use a rename tool, such as your editor's or language server's rename, to apply a name you chose to every reference.
+  - Use unclop only through the commands it prints. Do not read or edit .unclop.jsonl, do not edit or copy the config file, do not pass --config or --force, and do not set UNCLOP_CONFIG. Do not create or edit .unclop.yaml in the project root unless the user has specifically asked for it. The batch size and the rules are the user's choice.
+";
+
 pub fn line_span(item: &Item) -> String {
     if item.line[0] == item.line[1] {
         format!("L{}", item.line[0])
@@ -71,6 +81,8 @@ pub fn render_text(
         out.push_str(notes);
         out.push_str("\n\n");
     }
+    out.push_str(USAGE_RULES);
+    out.push('\n');
 
     let present: Vec<Category> = Category::ALL
         .into_iter()
@@ -167,6 +179,7 @@ pub fn render_json(
         "prompt": config.prompt,
         "prompts": config.prompts,
         "notes": config.notes,
+        "usage_rules": USAGE_RULES,
         "rules": {
             "identifier": config.rules.identifier,
             "comment": config.rules.comment,

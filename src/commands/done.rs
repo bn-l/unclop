@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::json;
 
-use super::{Ctx, Output};
+use super::{Ctx, Output, next};
 use crate::state::{State, Status, key_of};
 
 fn parse_rules(spec: &str) -> Result<Vec<usize>> {
@@ -22,14 +22,18 @@ fn parse_rules(spec: &str) -> Result<Vec<usize>> {
     Ok(out)
 }
 
-/// True when an id was issued in some chunk but no longer exists in state,
-/// which means its source was deleted.
-fn issued_but_gone(state: &State, query: &str) -> bool {
-    state.chunks.values().any(|c| {
-        c.keys.iter().any(|k| {
-            k.split_once('#')
-                .is_some_and(|(_, id)| id == query || (query.len() >= 6 && id.starts_with(query)))
-        })
+/// The chunk key an id was issued under. Called for ids that no longer exist in
+/// state, so a match means the source was deleted.
+fn issued_key(state: &State, query: &str) -> Option<String> {
+    state.chunks.values().find_map(|c| {
+        c.keys
+            .iter()
+            .find(|k| {
+                k.split_once('#').is_some_and(|(_, id)| {
+                    id == query || (query.len() >= 6 && id.starts_with(query))
+                })
+            })
+            .cloned()
     })
 }
 
@@ -37,6 +41,7 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
     let mut lines = Vec::new();
     let mut results = Vec::new();
     let mut code = 0;
+    let mut touched = Vec::new();
 
     for arg in args {
         let Some((query, rules_spec)) = arg.split_once(':') else {
@@ -57,9 +62,10 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         let (path, id) = match state.resolve(query) {
             Ok(found) => found,
             Err(e) => {
-                if issued_but_gone(state, query) {
+                if let Some(key) = issued_key(state, query) {
                     lines.push(format!("{query}: gone from source, counted as done"));
                     results.push(json!({ "id": query, "outcome": "gone" }));
+                    touched.push(key);
                 } else {
                     lines.push(format!("{query}: {e}"));
                     code = 1;
@@ -69,6 +75,7 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         };
 
         let key = key_of(&path, &id);
+        touched.push(key.clone());
         let snapshot = state
             .chunks
             .values()
@@ -144,5 +151,6 @@ pub fn run(ctx: &Ctx, state: &mut State, args: &[String], keep: bool) -> Result<
         lines,
         json: Some(json!({ "results": results })),
         code,
+        then: next::continue_run(state, &touched),
     })
 }

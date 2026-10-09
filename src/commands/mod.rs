@@ -32,6 +32,8 @@ pub struct Output {
     pub lines: Vec<String>,
     pub json: Option<Value>,
     pub code: i32,
+    /// The command for the footer when it is not plain `next` or `report`.
+    pub then: Option<String>,
 }
 
 pub fn dispatch(cli: Cli) -> Result<i32> {
@@ -103,15 +105,17 @@ pub fn then_command(pending: usize) -> &'static str {
     }
 }
 
-pub fn footer(pending: usize, files: usize) -> String {
+pub fn footer(pending: usize, files: usize, then: &str) -> String {
     format!(
-        "{pending} pending across {files} {} · then: {}",
+        "{pending} pending across {files} {} · then: {then}",
         if files == 1 { "file" } else { "files" },
-        then_command(pending)
     )
 }
 
 fn emit(out: Output, pending: usize, files: usize, json_mode: bool) -> i32 {
+    let then = out
+        .then
+        .unwrap_or_else(|| then_command(pending).to_string());
     if json_mode {
         let mut value = out
             .json
@@ -119,7 +123,7 @@ fn emit(out: Output, pending: usize, files: usize, json_mode: bool) -> i32 {
         if let Value::Object(map) = &mut value {
             map.insert("pending".into(), pending.into());
             map.insert("pending_files".into(), files.into());
-            map.insert("then".into(), then_command(pending).into());
+            map.insert("then".into(), then.clone().into());
             map.insert("exit_code".into(), out.code.into());
         }
         println!(
@@ -131,7 +135,7 @@ fn emit(out: Output, pending: usize, files: usize, json_mode: bool) -> i32 {
             println!("{line}");
         }
         println!();
-        println!("{}", footer(pending, files));
+        println!("{}", footer(pending, files, &then));
     }
     out.code
 }

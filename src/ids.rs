@@ -25,6 +25,15 @@ impl Category {
         }
     }
 
+    /// The singular name used as the config key and by `next --only`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Identifier => "identifier",
+            Category::Comment => "comment",
+            Category::String => "string",
+        }
+    }
+
     /// Accepts the singular config key or the plural label.
     pub fn parse(s: &str) -> Option<Category> {
         Some(match s {

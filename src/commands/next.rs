@@ -35,6 +35,41 @@ pub fn assigned(path: &str, worker: usize, workers: usize) -> bool {
     workers == 1 || (xxh3_64(path.as_bytes()) % workers as u64) as usize == worker - 1
 }
 
+/// The command that continues a worker's run: `next` with the same --worker, plus
+/// --only while that category has pending items for the worker. `report` once the
+/// worker has nothing pending.
+pub fn continue_with(state: &State, wkey: &str, only: Option<Category>) -> String {
+    let (wi, wn) = parse_worker(Some(wkey)).unwrap_or((1, 1));
+    let mine: Vec<&Item> = state
+        .files
+        .iter()
+        .filter(|(path, entry)| !entry.record.skipped && assigned(path, wi, wn))
+        .flat_map(|(_, entry)| entry.items.iter().filter(|i| i.is_pending()))
+        .collect();
+    if mine.is_empty() {
+        return "unclop report".to_string();
+    }
+    let mut cmd = "unclop next".to_string();
+    if wn > 1 {
+        cmd.push_str(&format!(" --worker {wkey}"));
+    }
+    if let Some(c) = only
+        && mine.iter().any(|i| i.kind.category() == c)
+    {
+        cmd.push_str(&format!(" --only {}", c.name()));
+    }
+    cmd
+}
+
+/// `continue_with` for the chunk that issued any of `keys`, or None when no chunk did.
+pub fn continue_run(state: &State, keys: &[String]) -> Option<String> {
+    let chunk = state
+        .chunks
+        .values()
+        .find(|c| c.keys.iter().any(|k| keys.contains(k)))?;
+    Some(continue_with(state, &chunk.worker, chunk.only))
+}
+
 pub fn run(
     ctx: &Ctx,
     state: &mut State,
@@ -72,6 +107,7 @@ pub fn run(
                 lines,
                 json: Some(json),
                 code: 2,
+                then: Some(continue_with(state, &wkey, only)),
             });
         }
     }
@@ -149,6 +185,7 @@ pub fn run(
             lines,
             json: Some(json!({ "files": [], "total_pending": total_pending, "only": only })),
             code: 0,
+            then: Some(continue_with(state, &wkey, only)),
         });
     }
 
@@ -171,10 +208,11 @@ pub fn run(
     state.chunks.insert(
         wkey.clone(),
         Chunk {
-            worker: wkey,
+            worker: wkey.clone(),
             keys: keys.clone(),
             issued: now,
             snapshot,
+            only,
         },
     );
     for key in &keys {
@@ -189,6 +227,7 @@ pub fn run(
         lines: text.lines().map(String::from).collect(),
         json: Some(json),
         code: 0,
+        then: Some(continue_with(state, &wkey, only)),
     })
 }
 

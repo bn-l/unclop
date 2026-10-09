@@ -78,5 +78,6 @@ pub fn run(
         lines,
         json: Some(json!({ "results": results })),
         code,
+        then: None,
     })
 }

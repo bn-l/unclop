@@ -1,8 +1,8 @@
 use anyhow::{Result, bail};
 use serde_json::json;
 
-use super::{Ctx, Output, rel_path};
-use crate::state::{State, Status};
+use super::{Ctx, Output, next, rel_path};
+use crate::state::{State, Status, key_of};
 
 pub fn run(ctx: &Ctx, state: &mut State, ids: &[String], files: &[String]) -> Result<Output> {
     if ids.is_empty() && files.is_empty() {
@@ -11,10 +11,12 @@ pub fn run(ctx: &Ctx, state: &mut State, ids: &[String], files: &[String]) -> Re
     let mut lines = Vec::new();
     let mut results = Vec::new();
     let mut code = 0;
+    let mut touched = Vec::new();
 
     for query in ids {
         match state.resolve(query) {
             Ok((path, id)) => {
+                touched.push(key_of(&path, &id));
                 let item = state.get_mut(&path, &id).expect("resolved item exists");
                 item.status = Status::Skipped;
                 item.alias = None;
@@ -33,6 +35,7 @@ pub fn run(ctx: &Ctx, state: &mut State, ids: &[String], files: &[String]) -> Re
         let exists = ctx.root.join(&rel).is_file();
         let entry = state.entry_mut(&rel);
         entry.record.skipped = true;
+        touched.extend(entry.items.iter().map(|i| i.key()));
         let dropped = entry.items.len();
         entry.items.clear();
         if exists {
@@ -47,5 +50,6 @@ pub fn run(ctx: &Ctx, state: &mut State, ids: &[String], files: &[String]) -> Re
         lines,
         json: Some(json!({ "results": results })),
         code,
+        then: next::continue_run(state, &touched),
     })
 }

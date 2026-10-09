@@ -75,5 +75,6 @@ pub fn run(_ctx: &Ctx, state: &State) -> Result<Output> {
             "totals": { "pending": total.pending, "done": total.done, "skipped": total.skipped },
         })),
         code: if total.pending > 0 { 1 } else { 0 },
+        then: None,
     })
 }

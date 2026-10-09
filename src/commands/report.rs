@@ -98,5 +98,6 @@ pub fn run(ctx: &Ctx, state: &State) -> Result<Output> {
             "files": files_json,
         })),
         code: 0,
+        then: None,
     })
 }

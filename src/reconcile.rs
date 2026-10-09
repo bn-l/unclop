@@ -261,6 +261,7 @@ mod tests {
                 keys: vec!["a.rs#bbbbbbbbbb".into()],
                 issued: 0,
                 snapshot: [("a.rs#bbbbbbbbbb".to_string(), "processedResult".to_string())].into(),
+                only: None,
             },
         );
         let scanned = [(

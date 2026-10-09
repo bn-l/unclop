@@ -89,6 +89,10 @@ identifier is pending and then `next --only comment` reviews every identifier in
 codebase before the first comment, so comments are rewritten against the final names. \
 When the category has no pending item the command says so and exits with code 0.
 
+The `then:` line at the end of `next`, `done` and `skip` repeats --worker, and repeats \
+--only while that category has pending items for the worker. It names `report` once \
+the worker has nothing pending.
+
 The command exits with code 2 and lists the unresolved items when items from this \
 worker's previous chunk are still pending. Mark them with `done` or `skip`, or pass \
 --force to receive a new chunk anyway.

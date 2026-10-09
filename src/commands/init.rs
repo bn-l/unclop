@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::{Ctx, footer, refresh};
+use super::{Ctx, footer, refresh, then_command};
 use crate::config;
 use crate::scan::lang::Registry;
 use crate::state::{STATE_FILE, with_lock};
@@ -65,7 +65,7 @@ pub fn run(root: &Path, config_override: Option<&Path>) -> Result<i32> {
     println!();
     println!("- Unclop stores data in {STATE_FILE} (author suggests committing it).");
     println!();
-    println!("{}", footer(pending, pending_files));
+    println!("{}", footer(pending, pending_files, then_command(pending)));
     println!();
     Ok(0)
 }

@@ -261,6 +261,13 @@ fn workers_split_files() {
             .map(|f| f["path"].as_str().unwrap().to_string())
             .collect()
     };
+    for (w, v) in [("1/2", &a), ("2/2", &b)] {
+        if files(v).is_empty() {
+            assert_eq!(v["then"], "unclop report");
+        } else {
+            assert_eq!(v["then"], format!("unclop next --worker {w}"));
+        }
+    }
     let (fa, fb) = (files(&a), files(&b));
     assert!(
         fa.iter().all(|f| !fb.contains(f)),
@@ -348,6 +355,41 @@ fn only_takes_one_category() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("identifier, comment or string"));
+}
+
+#[test]
+fn then_line_keeps_the_flags() {
+    let p = setup();
+    unclop(&p).arg("init").assert().success();
+
+    let chunk = json(&p, &["next", "--only", "identifier", "--json"]);
+    assert_eq!(chunk["then"], "unclop next --only identifier");
+    let idents = items(&chunk);
+    let (first, rest) = idents.split_first().unwrap();
+    assert!(!rest.is_empty());
+
+    // done is the last thing the agent reads, so it has to repeat the filter.
+    unclop(&p)
+        .args([
+            "done",
+            &format!("{}:1,2,3", first["id"].as_str().unwrap()),
+            "--keep",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(
+            "then: unclop next --only identifier\n",
+        ));
+
+    // Settling the last identifier drops the filter.
+    let mut skip = unclop(&p);
+    skip.arg("skip");
+    for i in rest {
+        skip.arg(i["id"].as_str().unwrap());
+    }
+    skip.assert()
+        .success()
+        .stdout(predicate::str::ends_with("then: unclop next\n"));
 }
 
 #[test]

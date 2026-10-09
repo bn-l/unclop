@@ -86,6 +86,9 @@ pub struct Chunk {
     pub issued: u64,
     #[serde(default)]
     pub snapshot: BTreeMap<String, String>,
+    /// The category `next --only` limited the chunk to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub only: Option<Category>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -399,6 +402,7 @@ mod tests {
                 keys: vec!["a.rs#abc123".into()],
                 issued: 7,
                 snapshot: [("a.rs#abc123".to_string(), "name".to_string())].into(),
+                only: Some(Category::Identifier),
             },
         );
         state
@@ -420,6 +424,7 @@ mod tests {
             assert!(loaded.files["b.rs"].record.skipped);
             assert_eq!(loaded.files["a.rs"].items[0].alias.as_deref(), Some("old"));
             assert_eq!(loaded.chunks["1/1"].keys, vec!["a.rs#abc123"]);
+            assert_eq!(loaded.chunks["1/1"].only, Some(Category::Identifier));
             Ok(())
         })
         .unwrap();
